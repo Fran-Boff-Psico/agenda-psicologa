@@ -3,12 +3,12 @@
     --sidebar-bg: #1e293b;
     --primary-color: #2563eb;
     --text-main: #334155;
-    --border-color: #cbd5e1;
+    --border-color: #64748b;
     --card-bg: #ffffff;
     --text-dark: #0f172a;
-    --semana-bg: #f1f5f9;
-    --semana-text: #0f172a;
-    --border-grade: #e2e8f0;
+    --semana-bg: #dcfce7;
+    --semana-text: #14532d;
+    --border-grade: #475569;
     --bg-dia-util: #e6f4ea;
     --text-dia-util: #137333;
     --bg-dia-sab: #fef7e0;
@@ -33,12 +33,12 @@ body.dark-theme {
     --bg-primary: #0f172a;
     --sidebar-bg: #020617;
     --text-main: #cbd5e1;
-    --border-color: #334155;
+    --border-color: #94a3b8;
     --card-bg: #1e293b;
     --text-dark: #f8fafc;
-    --semana-bg: #1e293b;
-    --semana-text: #f8fafc;
-    --border-grade: #334155;
+    --semana-bg: #14532d;
+    --semana-text: #dcfce7;
+    --border-grade: #cbd5e1;
     --bg-dia-util: #064e3b;
     --text-dia-util: #34d399;
     --bg-dia-sab: #7c2d12;
@@ -149,6 +149,9 @@ body {
 .card-receber { background: #e8f7ed; border-color: #42a55c; }
 .card-receber h3, .card-receber p { color: #147334; }
 .formulario-conta { margin-bottom: 18px; }
+.acoes-formulario-conta { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+.acoes-formulario-conta .btn-principal,
+.acoes-formulario-conta .btn-secundario { width: auto; min-width: 172px; min-height: 42px; }
 .btn-conta-excluir { padding: 6px 9px; font-size: 0.75rem; }
 .checkbox-tabela { margin: 0; font-size: 0.78rem; }
 
@@ -221,7 +224,7 @@ body {
 .form-container,
 .cardPaciente {
     background: var(--card-bg);
-    border: 1px solid var(--border-color);
+    border: 2px solid var(--border-color);
     border-radius: 8px;
 }
 
@@ -250,7 +253,7 @@ body {
 .semana-bloco {
     margin-bottom: 35px;
     background: var(--card-bg);
-    border: 1px solid var(--border-grade);
+    border: 2px solid var(--border-grade);
     border-radius: 8px;
     overflow: hidden;
     box-shadow: 0 4px 10px rgba(15, 23, 42, 0.06);
@@ -262,15 +265,20 @@ body {
     color: var(--semana-text);
     text-align: center;
     padding: 12px;
-    font-weight: 600;
+    font-weight: 700;
     font-size: 1rem;
-    border-bottom: 1px solid var(--border-grade);
+    border-bottom: 2px solid var(--border-grade);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--semana-text) 24%, transparent);
 }
 
 .grade-agenda {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
-    gap: 4px;
+    gap: 6px;
+    padding: 5px;
+    border: 1px solid var(--border-grade);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--bg-primary) 84%, var(--border-grade));
 }
 
 .coluna-dia-titulo {
@@ -278,7 +286,7 @@ body {
     font-size: 0.85rem;
     text-align: center;
     font-weight: 600;
-    border-bottom: 1px solid var(--border-grade);
+    border: 1px solid var(--border-grade);
     border-radius: 6px;
     text-transform: lowercase;
 }
@@ -306,7 +314,7 @@ body {
 .container-linha-bloco {
     background: var(--card-bg);
     position: relative;
-    border: 1px solid var(--border-color);
+    border: 2px solid var(--border-color);
     border-radius: 8px;
     box-shadow: 0 1px 2px rgba(0,0,0,0.03);
 }
@@ -366,7 +374,7 @@ body {
 
 .cell-vazia {
     background: var(--card-bg);
-    border: 1px dashed var(--border-color);
+    border: 2px dashed var(--border-color);
     opacity: 0.45;
 }
 
@@ -507,6 +515,10 @@ body {
 
 .relatorio-botao-grupo {
     justify-content: flex-end;
+}
+
+.texto-exportar-mobile {
+    display: none;
 }
 
 .btn-secundario {
@@ -687,6 +699,7 @@ body {
     max-width: 94%;
     max-height: 90vh;
     overflow-y: auto;
+    border: 2px solid var(--border-color);
 }
 
 .modal-box h3 {
@@ -722,6 +735,18 @@ body {
     display: flex;
     justify-content: flex-end;
     gap: 10px;
+}
+
+#modalProntuario .modal-acoes button,
+#modalAgendamento .modal-acoes .btn-secundario {
+    width: 184px;
+    min-height: 44px;
+}
+
+#contaPagarOcorrenciaPagoBox {
+    align-self: flex-start;
+    width: max-content;
+    margin: 8px 0 0;
 }
 
 .modal-prontuario-box {
@@ -878,6 +903,14 @@ body {
 }
 
 @media (max-width: 760px) {
+    .texto-exportar-desktop {
+        display: none;
+    }
+
+    .texto-exportar-mobile {
+        display: inline;
+    }
+
     body {
         display: block;
         background: #f4f7f5;
@@ -1005,6 +1038,18 @@ body {
     .btn-anexo-prontuario {
         justify-content: center;
         width: auto;
+    }
+
+    .acoes-formulario-conta {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .acoes-formulario-conta .btn-principal,
+    .acoes-formulario-conta .btn-secundario,
+    #modalProntuario .modal-acoes button,
+    #modalAgendamento .modal-acoes .btn-secundario {
+        width: 100%;
     }
 
     .financeiro-cabecalho .btn-principal {
