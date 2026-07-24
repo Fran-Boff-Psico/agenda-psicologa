@@ -6,6 +6,7 @@
     <title>Sistema de Agenda Integrada</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
     <header class="mobile-topbar">
@@ -434,13 +435,16 @@
             </div>
             <label for="textoProntuarioSessao">Registro clinico</label>
             <textarea id="textoProntuarioSessao" rows="12" placeholder="Digite as anotacoes desta sessao..."></textarea>
+            <div id="statusGoogleDrive" class="status-google-drive" data-status="desconectado">Google Drive: ainda não conectado.</div>
+            <div id="linksProntuarioGoogleDrive" class="links-prontuario-drive" hidden></div>
             <div class="acoes-prontuario">
+                <button type="button" id="btnCarregarProntuarioDrive" class="btn-secundario">Carregar do Google Drive</button>
                 <button type="button" id="btnDitadoProntuario" class="btn-secundario">🎙️ Iniciar ditado</button>
                 <label class="btn-anexo-prontuario" for="arquivosProntuarioSessao">Anexar documentos</label>
                 <input type="file" id="arquivosProntuarioSessao" multiple accept=".pdf,.doc,.docx,image/*" hidden>
             </div>
             <div id="listaArquivosProntuario" class="lista-arquivos-prontuario">Nenhum arquivo selecionado.</div>
-            <p class="aviso-prontuario">Teste: o texto fica salvo neste navegador. Os documentos selecionados nao sao enviados nem guardados ate conectarmos o armazenamento privado em nuvem.</p>
+            <p class="aviso-prontuario">Ao salvar, o prontuario e os anexos serão enviados para a pasta privada do paciente no Google Drive. O texto não fica armazenado neste navegador.</p>
             <div class="modal-acoes">
                 <button type="button" class="btn-secundario" onclick="fecharProntuarioSessao()">Cancelar</button>
                 <button type="button" class="btn-principal" onclick="salvarProntuarioSessao()">Salvar prontuario</button>
