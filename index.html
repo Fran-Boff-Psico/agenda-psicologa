@@ -190,13 +190,13 @@
                             <option value="recebidos">Pagamentos Recebidos</option>
                             <option value="previsao">Previsao de Faturamento</option>
                             <option value="contas_pagar">Contas a Pagar</option>
-                            <option value="contas_manuais">Contas Manuais</option>
                         </select>
                     </div>
                     <div class="form-group">
                         <label>Paciente</label>
                         <select id="filtroPacienteRelatorio">
                             <option value="">Todos os pacientes</option>
+                            <option value="reg_manual">Reg. Manual</option>
                         </select>
                     </div>
                     <div class="form-group">
@@ -220,11 +220,7 @@
                     </div>
                     <div class="form-group relatorio-botao-grupo">
                         <label>&nbsp;</label>
-                        <button type="button" id="btnGerarRelatorio" class="btn-principal">Gerar Relatorio</button>
-                    </div>
-                    <div class="form-group relatorio-botao-grupo">
-                        <label>&nbsp;</label>
-                        <button type="button" id="btnGerarPdfRelatorio" class="btn-secundario">Gerar PDF</button>
+                        <button type="button" id="btnExportarRelatorio" class="btn-principal"><span class="texto-exportar-desktop">Exportar PDF</span><span class="texto-exportar-mobile">Compartilhar</span></button>
                     </div>
                 </div>
 
@@ -260,8 +256,7 @@
             </div>
             <div id="formContaReceber" class="form-container formulario-conta" style="display:none;">
                 <h3>Nova conta a receber</h3>
-                <div class="form-row"><div class="form-group"><label>Data</label><input type="date" id="contaReceberData"></div><div class="form-group"><label>Descricao</label><input type="text" id="contaReceberDescricao" placeholder="Ex.: Atendimento avulso"></div><div class="form-group"><label>Valor (R$)</label><input type="number" id="contaReceberValor" min="0" step="0.01"></div><div class="form-group"><label class="checkbox-pagamento"><input type="checkbox" id="contaReceberPago"><span>Pago</span></label></div></div>
-                <button type="button" class="btn-principal" onclick="salvarContaManual('receber')">Salvar conta a receber</button>
+                <div class="acoes-formulario-conta"><button type="button" class="btn-principal" onclick="salvarContaManual('receber')">Salvar conta a receber</button><button type="button" class="btn-secundario" onclick="cancelarFormularioConta('receber')">Cancelar</button></div>
             </div>
             <div id="listaContasReceber" class="resultado-relatorio"></div>
         </div>
@@ -272,7 +267,7 @@
             <div id="formContaPagar" class="form-container formulario-conta" style="display:none;">
                 <h3>Nova conta a pagar</h3>
                 <div class="form-row"><div class="form-group"><label>Data</label><input type="date" id="contaPagarData"></div><div class="form-group"><label>Valor (R$)</label><input type="number" id="contaPagarValor" min="0" step="0.01"></div><div class="form-group"><label>Categoria</label><select id="contaPagarCategoria" onchange="alternarDescricaoContaPagar()"><option value="Sublocacao">Sublocacao</option><option value="Outro">Outro</option></select></div><div class="form-group" id="grupoDescricaoContaPagar" style="display:none;"><label>Descricao</label><input type="text" id="contaPagarDescricao" placeholder="Descreva a conta"></div><div class="form-group"><label class="checkbox-pagamento"><input type="checkbox" id="contaPagarPago"><span>Pago</span></label></div></div>
-                <button type="button" class="btn-principal" onclick="salvarContaManual('pagar')">Salvar conta a pagar</button>
+                <div class="acoes-formulario-conta"><button type="button" class="btn-principal" onclick="salvarContaManual('pagar')">Salvar conta a pagar</button><button type="button" class="btn-secundario" onclick="cancelarFormularioConta('pagar')">Cancelar</button></div>
             </div>
             <div id="listaContasPagar" class="resultado-relatorio"></div>
         </div>
@@ -397,7 +392,7 @@
                     <select id="contaPagarOcorrenciaCategoria" onchange="alternarDescricaoContaPagarOcorrencia()"><option value="">Nenhuma</option><option value="Sublocacao">Sublocacao</option><option value="Outro">Outro</option></select>
                     <input type="text" id="contaPagarOcorrenciaDescricao" placeholder="Descricao" style="display:none; margin-top:8px;">
                     <input type="number" id="contaPagarOcorrenciaValor" min="0" step="0.01" placeholder="Valor (R$)" style="display:none; margin-top:8px;">
-                    <label class="checkbox-pagamento" id="contaPagarOcorrenciaPagoBox" style="display:none;"><input type="checkbox" id="contaPagarOcorrenciaPago"><span>Pago</span></label>
+                    <label class="checkbox-pagamento" id="contaPagarOcorrenciaPagoBox" style="display:none;"><input type="checkbox" id="contaPagarOcorrenciaPago"><span>R$ Pago</span></label>
                 </div>
             </div>
 
@@ -438,7 +433,6 @@
             <div id="statusGoogleDrive" class="status-google-drive" data-status="desconectado">Google Drive: ainda não conectado.</div>
             <div id="linksProntuarioGoogleDrive" class="links-prontuario-drive" hidden></div>
             <div class="acoes-prontuario">
-                <button type="button" id="btnCarregarProntuarioDrive" class="btn-secundario">Carregar do Google Drive</button>
                 <button type="button" id="btnDitadoProntuario" class="btn-secundario">🎙️ Iniciar ditado</button>
                 <label class="btn-anexo-prontuario" for="arquivosProntuarioSessao">Anexar documentos</label>
                 <input type="file" id="arquivosProntuarioSessao" multiple accept=".pdf,.doc,.docx,image/*" hidden>
