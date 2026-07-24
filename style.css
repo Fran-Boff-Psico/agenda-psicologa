@@ -770,6 +770,46 @@ body {
     margin-top: 12px;
 }
 
+.status-google-drive {
+    margin-top: 10px;
+    padding: 9px 11px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: #64748b;
+    font-size: 0.84rem;
+    background: #f8fafc;
+}
+
+.status-google-drive[data-status="conectado"] {
+    color: #166534;
+    background: #f0fdf4;
+    border-color: #86efac;
+}
+
+.status-google-drive[data-status="erro"] {
+    color: #991b1b;
+    background: #fef2f2;
+    border-color: #fca5a5;
+}
+
+.links-prontuario-drive {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.links-prontuario-drive a {
+    color: #1d4ed8;
+    font-size: 0.84rem;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.links-prontuario-drive a:hover {
+    text-decoration: underline;
+}
+
 .acoes-prontuario .btn-secundario,
 .btn-anexo-prontuario {
     width: auto;
