@@ -255,11 +255,12 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btnSalvarPaciente')?.addEventListener('click', salvarPaciente);
     document.getElementById('btnSalvarConfiguracoes')?.addEventListener('click', salvarConfiguracoes);
     document.getElementById('btnAplicarPeriodoPaciente')?.addEventListener('click', () => renderizarSidebarCalendarioPaciente(idPacienteEditando, true));
-    document.getElementById('btnGerarRelatorio')?.addEventListener('click', gerarRelatorioFinanceiro);
-    document.getElementById('btnGerarPdfRelatorio')?.addEventListener('click', gerarPdfRelatorio);
+    document.getElementById('btnExportarRelatorio')?.addEventListener('click', exportarRelatorioFinanceiro);
+    ['tipoRelatorio', 'filtroPacienteRelatorio', 'filtroPagamentoRelatorio', 'dataInicioRelatorio', 'dataFimRelatorio'].forEach(campoId => {
+        document.getElementById(campoId)?.addEventListener('change', gerarRelatorioFinanceiro);
+    });
     document.getElementById('arquivosProntuarioSessao')?.addEventListener('change', atualizarArquivosProntuarioSelecionados);
     document.getElementById('btnDitadoProntuario')?.addEventListener('click', alternarDitadoProntuario);
-    document.getElementById('btnCarregarProntuarioDrive')?.addEventListener('click', carregarProntuarioDoGoogleDrive);
 
     document.getElementById('dataInicial')?.addEventListener('change', () => {
         atualizarDiaSemanaAutomatico();
@@ -477,7 +478,7 @@ window.abrirEditorDiretoAgenda = function(pacienteId, dataISO, hora, modalidade,
     document.getElementById('valorAgendamento').value = valor;
     document.getElementById('statusAgendamento').value = status;
     carregarStatusPagamentoOcorrencia(pacienteId, dataISO);
-    document.getElementById('btnAbrirProntuario').onclick = () => abrirProntuarioSessao(pacienteId, dataISO);
+    document.getElementById('btnAbrirProntuario').onclick = () => abrirProntuarioSessao(pacienteId, dataISO, hora);
     const campoFrequencia = document.getElementById('frequenciaAgendamento');
     if (campoFrequencia) {
         campoFrequencia.value = 'Semanal';
@@ -520,13 +521,16 @@ window.fecharModalAgendamento = function() {
     if (modal) modal.style.display = 'none';
 };
 
-async function abrirProntuarioSessao(pacienteId, dataISO) {
+async function abrirProntuarioSessao(pacienteId, dataISO, hora = '') {
     const modal = document.getElementById('modalProntuario');
     const campoTexto = document.getElementById('textoProntuarioSessao');
     const identificacao = document.getElementById('prontuarioIdentificacao');
     if (!modal || !campoTexto || !identificacao) return;
 
-    prontuarioSessaoAtual = { pacienteId, dataISO, nomePaciente: '' };
+    prontuarioSessaoAtual = { pacienteId, dataISO, hora, nomePaciente: '' };
+    // Inicia a autorização enquanto a abertura ainda é resultado de um clique do usuário.
+    // Assim não é necessário um botão separado para conectar/carregar o Drive.
+    const autorizacaoDrive = obterTokenGoogleDrive(false).catch(() => null);
     arquivosProntuarioSelecionados = [];
     const inputArquivos = document.getElementById('arquivosProntuarioSessao');
     if (inputArquivos) inputArquivos.value = '';
@@ -546,8 +550,10 @@ async function abrirProntuarioSessao(pacienteId, dataISO) {
     atualizarLinksProntuarioGoogleDrive(registro);
     atualizarStatusGoogleDrive();
     modal.style.display = 'flex';
-    if (registro?.driveArquivoProntuarioId && tokenGoogleDriveValido()) {
-        carregarProntuarioDoGoogleDrive({ silencioso: true });
+    if (await autorizacaoDrive) {
+        await carregarProntuarioDoGoogleDrive({ silencioso: true });
+    } else {
+        atualizarStatusGoogleDrive('O Google Drive será conectado automaticamente ao salvar o prontuário.', 'desconectado');
     }
 }
 window.abrirProntuarioSessao = abrirProntuarioSessao;
@@ -611,9 +617,38 @@ function atualizarLinksProntuarioGoogleDrive(registro) {
     area.hidden = links.length === 0;
 }
 
-function nomePastaDataAtendimento(dataISO) {
+function nomePastaDataAtendimento(dataISO, hora = '') {
+    const [ano, mes, dia] = String(dataISO).split('-');
+    const horario = String(hora || '').trim().replace(':', 'h').replace(/[^0-9h]/g, '');
+    return `Atendimento - ${dia}-${mes}-${ano}${horario ? ` - ${horario}` : ''}`;
+}
+
+function nomeDataAtendimentoLegada(dataISO) {
     const [ano, mes, dia] = String(dataISO).split('-');
     return `${dia}-${mes}-${ano}`;
+}
+
+function nomeDocumentoProntuario(sessao) {
+    return `Prontuario - ${nomeSeguroDrive(sessao.nomePaciente)} - ${nomePastaDataAtendimento(sessao.dataISO, sessao.hora)}`;
+}
+
+function obterLogoProntuario() {
+    return localStorage.getItem('cfg_logo_url') || document.getElementById('logoClinicaDisplay')?.src || '';
+}
+
+function montarDocumentoProntuario(sessao, texto) {
+    const dataAtendimento = formatarDataBR(criarDataLocal(sessao.dataISO));
+    const horaAtendimento = String(sessao.hora || '').substring(0, 5) || '--:--';
+    const registradoEm = new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+    const logo = obterLogoProntuario();
+    const conteudo = escaparHTML(texto || '').replace(/\r?\n/g, '<br>');
+    return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><style>body{font-family:Arial,sans-serif;color:#172033;margin:48px;line-height:1.55}.cabecalho{display:flex;align-items:center;gap:24px;padding-bottom:18px;border-bottom:2px solid #3f7475}.logo{max-width:230px;max-height:100px;object-fit:contain}h1{margin:0 0 8px;font-size:24px;color:#234f50}.dados{margin:0;color:#475569}.marcador{font-size:1px;color:#fff;height:1px;overflow:hidden}.conteudo{margin-top:26px;font-size:12pt}</style></head><body><header class="cabecalho">${logo ? `<img class="logo" src="${escaparHTML(logo)}" alt="Logo">` : ''}<div><h1>Prontuário de Atendimento</h1><p class="dados"><b>Paciente:</b> ${escaparHTML(sessao.nomePaciente || 'Paciente')}<br><b>Data do atendimento:</b> ${escaparHTML(dataAtendimento)} às ${escaparHTML(horaAtendimento)}<br><b>Registrado em:</b> ${escaparHTML(registradoEm)}</p></div></header><div class="marcador">[[AGENDA_REGISTRO_CLINICO]]</div><main class="conteudo">${conteudo || '<p></p>'}</main></body></html>`;
+}
+
+function extrairTextoClinicoProntuario(texto) {
+    const marcador = '[[AGENDA_REGISTRO_CLINICO]]';
+    const indice = String(texto || '').indexOf(marcador);
+    return indice >= 0 ? String(texto).slice(indice + marcador.length).trim() : String(texto || '');
 }
 
 function nomeSeguroDrive(nome) {
@@ -632,7 +667,7 @@ function atualizarStatusGoogleDrive(mensagem, status) {
     const elemento = document.getElementById('statusGoogleDrive');
     if (!elemento) return;
     const conectado = Boolean(tokenGoogleDrive && Date.now() < tokenGoogleDriveExpiraEm);
-    elemento.innerText = mensagem || (conectado ? 'Google Drive conectado. Os arquivos serão salvos na pasta privada do paciente.' : 'Google Drive: conecte para carregar ou salvar os arquivos desta sessão.');
+    elemento.innerText = mensagem || (conectado ? 'Google Drive conectado. Os arquivos serão sincronizados automaticamente.' : 'O Google Drive será conectado automaticamente ao abrir ou salvar o prontuário.');
     elemento.dataset.status = status || (conectado ? 'conectado' : 'desconectado');
 }
 
@@ -700,6 +735,25 @@ async function localizarPastaGoogleDrive(pastaPaiId, nome, propriedades = {}) {
     return dados.files?.[0] || null;
 }
 
+async function localizarPastaGoogleDrivePorPropriedades(pastaPaiId, propriedades = {}) {
+    const filtros = [
+        `'${escaparConsultaDrive(pastaPaiId)}' in parents`,
+        "mimeType = 'application/vnd.google-apps.folder'",
+        'trashed = false'
+    ];
+    Object.entries(propriedades).forEach(([chave, valor]) => {
+        filtros.push(`appProperties has { key='${escaparConsultaDrive(chave)}' and value='${escaparConsultaDrive(valor)}' }`);
+    });
+    const parametros = new URLSearchParams({
+        q: filtros.join(' and '),
+        fields: 'files(id,name,webViewLink,appProperties)',
+        pageSize: '1',
+        spaces: 'drive'
+    });
+    const dados = await requisicaoGoogleDrive(`https://www.googleapis.com/drive/v3/files?${parametros}`);
+    return dados.files?.[0] || null;
+}
+
 async function criarPastaGoogleDrive(nome, pastaPaiId, propriedades = {}) {
     return requisicaoGoogleDrive('https://www.googleapis.com/drive/v3/files?fields=id,name,webViewLink,appProperties', {
         method: 'POST',
@@ -710,6 +764,14 @@ async function criarPastaGoogleDrive(nome, pastaPaiId, propriedades = {}) {
             parents: [pastaPaiId],
             appProperties: propriedades
         })
+    });
+}
+
+async function renomearItemGoogleDrive(arquivoId, nome) {
+    return requisicaoGoogleDrive(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(arquivoId)}?fields=id,name,webViewLink,appProperties`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: nome })
     });
 }
 
@@ -728,9 +790,8 @@ async function localizarEstruturaGoogleDrive(paciente, dataISO) {
     const nomePaciente = nomeSeguroDrive(paciente.nomePaciente);
     const pastaPaciente = await localizarPastaGoogleDrive(GOOGLE_DRIVE_PASTA_RAIZ_ID, nomePaciente, { agendaPacienteId: String(paciente.pacienteId) });
     if (!pastaPaciente) return null;
-    const nomeData = nomePastaDataAtendimento(dataISO);
     const chaveSessao = `${paciente.pacienteId}_${dataISO}`;
-    const pastaSessao = await localizarPastaGoogleDrive(pastaPaciente.id, nomeData, { agendaSessao: chaveSessao });
+    const pastaSessao = await localizarPastaGoogleDrivePorPropriedades(pastaPaciente.id, { agendaSessao: chaveSessao });
     return pastaSessao ? { pastaPaciente, pastaSessao } : null;
 }
 
@@ -741,11 +802,13 @@ async function garantirEstruturaGoogleDrive(paciente, dataISO) {
         pastaPaciente = await criarPastaGoogleDrive(nomePaciente, GOOGLE_DRIVE_PASTA_RAIZ_ID, { agendaPacienteId: String(paciente.pacienteId) });
     }
 
-    const nomeData = nomePastaDataAtendimento(dataISO);
+    const nomeAtendimento = nomePastaDataAtendimento(dataISO, paciente.hora);
     const chaveSessao = `${paciente.pacienteId}_${dataISO}`;
-    let pastaSessao = await localizarPastaGoogleDrive(pastaPaciente.id, nomeData, { agendaSessao: chaveSessao });
+    let pastaSessao = await localizarPastaGoogleDrivePorPropriedades(pastaPaciente.id, { agendaSessao: chaveSessao });
     if (!pastaSessao) {
-        pastaSessao = await criarPastaGoogleDrive(nomeData, pastaPaciente.id, { agendaSessao: chaveSessao });
+        pastaSessao = await criarPastaGoogleDrive(nomeAtendimento, pastaPaciente.id, { agendaSessao: chaveSessao });
+    } else if (pastaSessao.name !== nomeAtendimento) {
+        pastaSessao = await renomearItemGoogleDrive(pastaSessao.id, nomeAtendimento);
     }
     return { pastaPaciente, pastaSessao };
 }
@@ -816,15 +879,20 @@ async function carregarProntuarioDoGoogleDrive(opcoes = {}) {
         if (!registro?.driveArquivoProntuarioId && sessao?.nomePaciente) {
             const estrutura = await localizarEstruturaGoogleDrive(sessao, sessao.dataISO);
             if (estrutura) {
-                const nomeData = nomePastaDataAtendimento(sessao.dataISO);
+                const nomeData = nomePastaDataAtendimento(sessao.dataISO, sessao.hora);
+                const nomeDataLegado = nomeDataAtendimentoLegada(sessao.dataISO);
+                const nomeDocumento = nomeDocumentoProntuario(sessao);
                 const arquivos = await listarArquivosGoogleDrive(estrutura.pastaSessao.id);
-                const arquivoProntuario = arquivos.find(arquivo => arquivo.nome === `Prontuario - ${nomeData}`)
-                    || arquivos.find(arquivo => arquivo.nome === `Prontuario_${nomeData}.txt`);
+                const arquivoProntuario = arquivos.find(arquivo => arquivo.nome === nomeDocumento)
+                    || arquivos.find(arquivo => arquivo.nome === `Prontuario - ${nomeDataLegado}`)
+                    || arquivos.find(arquivo => arquivo.nome === `Prontuario_${nomeDataLegado}.txt`)
+                    || arquivos.find(arquivo => arquivo.nome.startsWith('Prontuario - '));
                 if (arquivoProntuario) {
                     registro = {
                         ...(registro || {}),
                         pacienteId: sessao.pacienteId,
                         dataISO: sessao.dataISO,
+                        hora: sessao.hora || '',
                         nomePaciente: sessao.nomePaciente,
                         drivePastaPacienteId: estrutura.pastaPaciente.id,
                         drivePastaSessaoId: estrutura.pastaSessao.id,
@@ -844,7 +912,7 @@ async function carregarProntuarioDoGoogleDrive(opcoes = {}) {
         if (registro?.driveArquivoProntuarioId) {
             const campoTexto = document.getElementById('textoProntuarioSessao');
             const conteudo = await baixarTextoProntuarioGoogleDrive(registro.driveArquivoProntuarioId);
-            if (campoTexto) campoTexto.value = conteudo.texto;
+            if (campoTexto) campoTexto.value = extrairTextoClinicoProntuario(conteudo.texto);
             registro.driveArquivoProntuarioLink = conteudo.metadados.webViewLink || registro.driveArquivoProntuarioLink || '';
             registro.driveArquivoProntuarioMimeType = conteudo.metadados.mimeType || registro.driveArquivoProntuarioMimeType || '';
             prontuarios[chave] = registro;
@@ -880,13 +948,17 @@ async function salvarProntuarioSessao() {
         atualizarStatusGoogleDrive('Autorizando e preparando as pastas do Google Drive...');
         await obterTokenGoogleDrive();
         const estrutura = await garantirEstruturaGoogleDrive(prontuarioSessaoAtual, prontuarioSessaoAtual.dataISO);
-        const nomeData = nomePastaDataAtendimento(prontuarioSessaoAtual.dataISO);
-        const arquivoTexto = new File([texto], `Prontuario - ${nomeData}`, { type: 'text/plain;charset=utf-8' });
+        const nomeDataLegado = nomeDataAtendimentoLegada(prontuarioSessaoAtual.dataISO);
+        const nomeDocumento = nomeDocumentoProntuario(prontuarioSessaoAtual);
+        const documentoHtml = montarDocumentoProntuario(prontuarioSessaoAtual, texto);
+        const arquivoTexto = new File([documentoHtml], nomeDocumento, { type: 'text/html;charset=utf-8' });
         const arquivosDaSessao = await listarArquivosGoogleDrive(estrutura.pastaSessao.id);
         const arquivoExistente = registroAnterior.driveArquivoProntuarioId
             ? { id: registroAnterior.driveArquivoProntuarioId }
             : arquivosDaSessao.find(arquivo => arquivo.nome === arquivoTexto.name)
-                || arquivosDaSessao.find(arquivo => arquivo.nome === `Prontuario_${nomeData}.txt`);
+                || arquivosDaSessao.find(arquivo => arquivo.nome === `Prontuario - ${nomeDataLegado}`)
+                || arquivosDaSessao.find(arquivo => arquivo.nome === `Prontuario_${nomeDataLegado}.txt`)
+                || arquivosDaSessao.find(arquivo => arquivo.nome.startsWith('Prontuario - '));
         const arquivoProntuario = await enviarArquivoGoogleDrive(
             estrutura.pastaSessao.id,
             arquivoTexto,
@@ -909,6 +981,7 @@ async function salvarProntuarioSessao() {
         prontuarios[chave] = {
             pacienteId: prontuarioSessaoAtual.pacienteId,
             dataISO: prontuarioSessaoAtual.dataISO,
+            hora: prontuarioSessaoAtual.hora || '',
             nomePaciente: prontuarioSessaoAtual.nomePaciente,
             drivePastaPacienteId: estrutura.pastaPaciente.id,
             drivePastaSessaoId: estrutura.pastaSessao.id,
@@ -1112,8 +1185,9 @@ async function renderizarSidebarCalendarioPaciente(pacienteId, manterPeriodoAtua
                 const pago = localStorage.getItem(chavePagamentoOcorrencia(pacienteId, dataISO)) === 'true';
                 const contasDaData = contasPagarPeriodo.filter(conta => conta.data === dataISO);
                 const textoContasPagar = contasDaData.map(conta => {
-                    const descricao = conta.categoria === 'Outro' ? conta.descricao : conta.categoria;
-                    return `<div class="linha-conta-pagar">Conta a Pagar: <b>${escaparHTML(descricao || 'Outro')}</b> | R$ ${Number(conta.valor || 0).toFixed(2)}${conta.pago ? ' | Pago' : ''}</div>`;
+                    const categoria = conta.categoria === 'Outro' || conta.categoria === 'Manual' ? 'Reg. Manual' : (conta.categoria || 'Reg. Manual');
+                    const complemento = categoria === 'Reg. Manual' && conta.descricao ? ` - ${escaparHTML(conta.descricao)}` : '';
+                    return `<div class="linha-conta-pagar">Conta a Pagar: <b>${escaparHTML(categoria)}</b>${complemento} | R$ ${Number(conta.valor || 0).toFixed(2)}${conta.pago ? ' | R$ Pago' : ''}</div>`;
                 }).join('');
 
                 htmlProxe += `
@@ -1251,18 +1325,23 @@ function calcularTotaisFinanceiros(ocorrencias) {
 function transformarContasReceberEmLinhas(contas) {
     return contas.map(conta => ({
         pacienteId: '', pacienteNome: conta.descricao || 'Conta manual', dataISO: conta.data,
-        dataObj: criarDataLocal(conta.data), hora: '--:--', modalidade: 'Manual', valor: Number(conta.valor || 0),
+        dataObj: criarDataLocal(conta.data), hora: '--:--', modalidade: 'Reg. Manual', valor: Number(conta.valor || 0),
         status: 'Conta a receber', pago: Boolean(conta.pago), tipoConta: 'receber', contaId: conta.id
     }));
 }
 
 function transformarContasPagarEmLinhas(contas) {
-    return contas.map(conta => ({
+    return contas.map(conta => {
+        const categoria = conta.categoria === 'Outro' || conta.categoria === 'Manual'
+            ? 'Reg. Manual'
+            : (conta.categoria || 'Reg. Manual');
+        return {
         pacienteId: conta.pacienteId || '', pacienteNome: conta.pacienteNome || conta.descricao || conta.categoria || 'Conta a pagar', dataISO: conta.data,
-        dataObj: criarDataLocal(conta.data), hora: '--:--', modalidade: conta.categoria || 'Manual', valor: Number(conta.valor || 0),
+        dataObj: criarDataLocal(conta.data), hora: '--:--', modalidade: categoria, valor: Number(conta.valor || 0),
         status: 'Conta a pagar', pago: Boolean(conta.pago), tipoConta: 'pagar', contaId: conta.contaId || conta.id,
         recorrente: Boolean(conta.recorrente), chavePagamento: conta.chavePagamento || ''
-    }));
+    };
+    });
 }
 
 function atualizarCardsFinanceiros(totais, pagar, ids = {}) {
@@ -1301,7 +1380,7 @@ async function carregarTelaRelatorios() {
     try {
         const { data: pacientes } = await bancoDados.from('pacientes').select('id, nome, status').order('nome');
         const selecionado = selectPaciente.value;
-        let htmlOptions = '<option value="">Todos os pacientes</option>';
+        let htmlOptions = '<option value="">Todos os pacientes</option><option value="reg_manual">Reg. Manual</option>';
         (pacientes || []).forEach(p => {
             const sufixo = p.status === 'Inativo' ? ' (Inativo)' : '';
             htmlOptions += `<option value="${p.id}">${escaparHTML((p.nome || 'Paciente sem nome') + sufixo)}</option>`;
@@ -1339,20 +1418,24 @@ async function gerarRelatorioFinanceiro() {
         fimInput.value = formatarDataISO(fim);
 
         const base = await buscarBaseFinanceira();
+        const filtroRegistrosManuais = selectPaciente.value === 'reg_manual';
+        const pacienteFiltro = filtroRegistrosManuais ? '' : selectPaciente.value;
         const contasReceber = contasNoPeriodo('receber', inicio, fim);
-        const contasPagar = contasNoPeriodo('pagar', inicio, fim);
-        const ocorrencias = montarOcorrenciasFinanceiras(base, inicio, fim, selectPaciente.value).concat(transformarContasReceberEmLinhas(contasReceber));
-        const totais = calcularTotaisFinanceiros(ocorrencias);
+        const contasPagar = contasNoPeriodo('pagar', inicio, fim)
+            .filter(conta => filtroRegistrosManuais || !pacienteFiltro || String(conta.pacienteId || '') === String(pacienteFiltro));
+        const linhasReceberManual = transformarContasReceberEmLinhas(contasReceber);
+        const linhasPagar = transformarContasPagarEmLinhas(contasPagar);
+        const linhasPagarRegManual = linhasPagar.filter(linha => linha.modalidade === 'Reg. Manual');
+        const ocorrencias = montarOcorrenciasFinanceiras(base, inicio, fim, pacienteFiltro).concat(linhasReceberManual);
+        const totais = calcularTotaisFinanceiros(filtroRegistrosManuais ? linhasReceberManual : ocorrencias);
 
         if (document.getElementById('relatorioTotalPrevisto')) document.getElementById('relatorioTotalPrevisto').innerText = formatarMoeda(totais.previsto);
         if (document.getElementById('relatorioTotalRecebido')) document.getElementById('relatorioTotalRecebido').innerText = formatarMoeda(totais.recebido);
         if (document.getElementById('relatorioTotalReceber')) document.getElementById('relatorioTotalReceber').innerText = formatarMoeda(totais.aReceber);
 
-        let linhas = ocorrencias;
+        let linhas = filtroRegistrosManuais ? linhasReceberManual.concat(linhasPagarRegManual) : ocorrencias;
         if (tipoInput.value === 'contas_pagar') {
-            linhas = transformarContasPagarEmLinhas(contasPagar);
-        } else if (tipoInput.value === 'contas_manuais') {
-            linhas = transformarContasReceberEmLinhas(contasReceber).concat(transformarContasPagarEmLinhas(contasPagar));
+            linhas = filtroRegistrosManuais ? linhasPagarRegManual : linhasPagar;
         } else if (tipoInput.value === 'contas_receber' && filtroPagamento.value === 'todos') {
             linhas = ocorrencias.filter(item => !item.pago);
         } else if (tipoInput.value === 'recebidos' && filtroPagamento.value === 'todos') {
@@ -1422,6 +1505,26 @@ function alternarFormularioConta(tipo) {
 }
 window.alternarFormularioConta = alternarFormularioConta;
 
+function cancelarFormularioConta(tipo) {
+    const sufixo = tipo === 'pagar' ? 'Pagar' : 'Receber';
+    const formulario = document.getElementById(`formConta${sufixo}`);
+    if (formulario) formulario.style.display = 'none';
+    const campoData = document.getElementById(`conta${sufixo}Data`);
+    const campoValor = document.getElementById(`conta${sufixo}Valor`);
+    const campoDescricao = document.getElementById(tipo === 'pagar' ? 'contaPagarDescricao' : 'contaReceberDescricao');
+    const campoPago = document.getElementById(tipo === 'pagar' ? 'contaPagarPago' : 'contaReceberPago');
+    if (campoData) campoData.value = '';
+    if (campoValor) campoValor.value = '';
+    if (campoDescricao) campoDescricao.value = '';
+    if (campoPago) campoPago.checked = false;
+    if (tipo === 'pagar') {
+        const categoria = document.getElementById('contaPagarCategoria');
+        if (categoria) categoria.value = 'Sublocacao';
+        alternarDescricaoContaPagar();
+    }
+}
+window.cancelarFormularioConta = cancelarFormularioConta;
+
 function alternarDescricaoContaPagar() {
     const grupo = document.getElementById('grupoDescricaoContaPagar');
     const categoria = document.getElementById('contaPagarCategoria')?.value;
@@ -1433,8 +1536,9 @@ function salvarContaManual(tipo) {
     const sufixo = tipo === 'pagar' ? 'Pagar' : 'Receber';
     const data = document.getElementById(`conta${sufixo}Data`)?.value;
     const valor = Number(document.getElementById(`conta${sufixo}Valor`)?.value || 0);
-    const categoria = tipo === 'pagar' ? document.getElementById('contaPagarCategoria')?.value : 'Conta a receber';
-    const descricao = tipo === 'pagar' ? (categoria === 'Outro' ? document.getElementById('contaPagarDescricao')?.value : categoria) : document.getElementById('contaReceberDescricao')?.value;
+    const categoriaSelecionada = tipo === 'pagar' ? document.getElementById('contaPagarCategoria')?.value : 'Reg. Manual';
+    const categoria = tipo === 'pagar' && categoriaSelecionada !== 'Outro' ? categoriaSelecionada : 'Reg. Manual';
+    const descricao = tipo === 'pagar' ? (categoriaSelecionada === 'Outro' ? document.getElementById('contaPagarDescricao')?.value : categoriaSelecionada) : document.getElementById('contaReceberDescricao')?.value;
     if (!data || !valor || valor <= 0 || !descricao?.trim()) { alert('Preencha data, descricao e valor da conta.'); return; }
     const contas = obterContasManuais();
     const pago = Boolean(document.getElementById(tipo === 'pagar' ? 'contaPagarPago' : 'contaReceberPago')?.checked);
@@ -1445,7 +1549,7 @@ function salvarContaManual(tipo) {
     else document.getElementById('contaReceberDescricao').value = '';
     const campoPago = document.getElementById(tipo === 'pagar' ? 'contaPagarPago' : 'contaReceberPago');
     if (campoPago) campoPago.checked = false;
-    alternarFormularioConta(tipo);
+    cancelarFormularioConta(tipo);
     carregarTelaContas(tipo);
     atualizarIndicadoresFinanceirosDashboard();
 }
@@ -1581,6 +1685,96 @@ async function salvarContaPagarOcorrencia(pacienteId, dataOriginal, novaData, es
     salvarContasManuais(contas);
 }
 
+function montarTextoParaCompartilharRelatorio() {
+    const tabela = document.querySelector('#resultadoRelatorio table');
+    if (!tabela) return '';
+    const paciente = document.getElementById('filtroPacienteRelatorio')?.selectedOptions[0]?.text || 'Todos os pacientes';
+    const inicio = document.getElementById('dataInicioRelatorio')?.value;
+    const fim = document.getElementById('dataFimRelatorio')?.value;
+    const inicioBR = inicio ? formatarDataBR(criarDataLocal(inicio)) : '--';
+    const fimBR = fim ? formatarDataBR(criarDataLocal(fim)) : '--';
+    const linhas = Array.from(tabela.querySelectorAll('tbody tr')).map(linha => Array.from(linha.cells).slice(0, 7).map(celula => celula.innerText.trim()).join(' | '));
+    const total = Array.from(tabela.querySelectorAll('tbody tr')).reduce((soma, linha) => {
+        const textoValor = linha.cells[6]?.innerText || '0';
+        return soma + Number(textoValor.replace(/[^0-9,]/g, '').replace(',', '.'));
+    }, 0);
+    return `Demonstrativo Financeiro de Atendimentos\nPaciente: ${paciente}\nPeriodo: ${inicioBR} a ${fimBR}\n\n${linhas.join('\n')}\n\nTotal: ${formatarMoeda(total)}`;
+}
+
+function criarPdfCompartilhavelRelatorio(textoRelatorio) {
+    const paraAscii = valor => String(valor || '')
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^\x20-\x7E\n]/g, ' ');
+    const escaparPdf = valor => paraAscii(valor).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+    const linhas = paraAscii(textoRelatorio).split('\n').flatMap(linha => {
+        if (!linha) return [' '];
+        const partes = [];
+        let restante = linha;
+        while (restante.length > 88) {
+            const posicao = restante.lastIndexOf(' ', 88);
+            partes.push(restante.slice(0, posicao > 0 ? posicao : 88));
+            restante = restante.slice(posicao > 0 ? posicao + 1 : 88);
+        }
+        partes.push(restante);
+        return partes;
+    });
+    const paginas = [];
+    while (linhas.length) paginas.push(linhas.splice(0, 44));
+    const objetos = [];
+    const idsPaginas = paginas.map((_, indice) => 3 + indice * 2);
+    objetos[1] = '<< /Type /Catalog /Pages 2 0 R >>';
+    objetos[2] = `<< /Type /Pages /Kids [${idsPaginas.map(id => `${id} 0 R`).join(' ')}] /Count ${paginas.length} >>`;
+    paginas.forEach((pagina, indice) => {
+        const idPagina = 3 + indice * 2;
+        const idConteudo = idPagina + 1;
+        const titulo = indice === 0 ? 'Demonstrativo Financeiro de Atendimentos' : 'Demonstrativo Financeiro de Atendimentos - Continuacao';
+        const comandos = ['BT', '/F1 15 Tf', '50 792 Td', `(${escaparPdf(titulo)}) Tj`, '0 -24 Td', '/F1 9 Tf', '14 TL'];
+        pagina.forEach(linha => {
+            comandos.push(`(${escaparPdf(linha)}) Tj`, 'T*');
+        });
+        comandos.push('ET');
+        const fluxo = comandos.join('\n');
+        objetos[idPagina] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> /Contents ${idConteudo} 0 R >>`;
+        objetos[idConteudo] = `<< /Length ${fluxo.length} >>\nstream\n${fluxo}\nendstream`;
+    });
+    let pdf = '%PDF-1.4\n';
+    const offsets = [0];
+    for (let indice = 1; indice < objetos.length; indice++) {
+        offsets[indice] = pdf.length;
+        pdf += `${indice} 0 obj\n${objetos[indice]}\nendobj\n`;
+    }
+    const inicioXref = pdf.length;
+    pdf += `xref\n0 ${objetos.length}\n0000000000 65535 f \n`;
+    for (let indice = 1; indice < objetos.length; indice++) pdf += `${String(offsets[indice]).padStart(10, '0')} 00000 n \n`;
+    pdf += `trailer\n<< /Size ${objetos.length} /Root 1 0 R >>\nstartxref\n${inicioXref}\n%%EOF`;
+    return new Blob([pdf], { type: 'application/pdf' });
+}
+
+async function exportarRelatorioFinanceiro() {
+    const resultado = document.getElementById('resultadoRelatorio');
+    if (!resultado?.querySelector('table')) {
+        alert('Aguarde a atualizacao do relatorio antes de exportar.');
+        return;
+    }
+    const telaMobile = window.matchMedia?.('(max-width: 760px)').matches;
+    if (telaMobile && navigator.share) {
+        try {
+            const textoRelatorio = montarTextoParaCompartilharRelatorio();
+            const arquivoPdf = new File([criarPdfCompartilhavelRelatorio(textoRelatorio)], 'demonstrativo-financeiro-atendimentos.pdf', { type: 'application/pdf' });
+            const dadosCompartilhamento = {
+                title: 'Demonstrativo Financeiro de Atendimentos',
+                text: textoRelatorio
+            };
+            if (navigator.canShare?.({ files: [arquivoPdf] })) dadosCompartilhamento.files = [arquivoPdf];
+            await navigator.share(dadosCompartilhamento);
+        } catch (erro) {
+            if (erro?.name !== 'AbortError') console.error('Nao foi possivel compartilhar o relatorio.', erro);
+        }
+        return;
+    }
+    gerarPdfRelatorio();
+}
+
 function gerarPdfRelatorio() {
     const resultado = document.getElementById('resultadoRelatorio');
     const inicio = document.getElementById('dataInicioRelatorio')?.value;
@@ -1624,8 +1818,9 @@ async function carregarPacientes() {
             lista.innerHTML = '<div>Nenhum paciente localizado.</div>';
             return;
         }
+        const pacientesOrdenados = [...data].sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
         let html = '';
-        data.forEach(paciente => {
+        pacientesOrdenados.forEach(paciente => {
             html += `
                 <div class="cardPaciente" style="${paciente.status === 'Inativo' ? 'opacity:0.65;' : ''}">
                     <strong>${paciente.nome || ''}</strong><br>
