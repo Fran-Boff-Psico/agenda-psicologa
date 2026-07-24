@@ -12,9 +12,14 @@ let idPacienteEditando = null;
 let uploadLogoBase64 = "";
 const CHAVE_CONTAS_MANUAIS = 'agenda_contas_manuais_v1';
 const CHAVE_PRONTUARIOS_SESSAO = 'agenda_prontuarios_sessao_v1';
+const GOOGLE_DRIVE_CLIENT_ID = '849028585438-5ormphqm573bo36bijq1er8inoaurvkf.apps.googleusercontent.com';
+const GOOGLE_DRIVE_PASTA_RAIZ_ID = '1y8K_mowUqJDOuzrsnxs0zPIRE_U7T4ku';
+const GOOGLE_DRIVE_ESCOPO = 'https://www.googleapis.com/auth/drive';
 let prontuarioSessaoAtual = null;
 let arquivosProntuarioSelecionados = [];
 let reconhecimentoProntuario = null;
+let tokenGoogleDrive = '';
+let tokenGoogleDriveExpiraEm = 0;
 
 const MAPA_CLASSES_STATUS = {
     'Realizado': 'status-realizado',
@@ -254,6 +259,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btnGerarPdfRelatorio')?.addEventListener('click', gerarPdfRelatorio);
     document.getElementById('arquivosProntuarioSessao')?.addEventListener('change', atualizarArquivosProntuarioSelecionados);
     document.getElementById('btnDitadoProntuario')?.addEventListener('click', alternarDitadoProntuario);
+    document.getElementById('btnCarregarProntuarioDrive')?.addEventListener('click', carregarProntuarioDoGoogleDrive);
 
     document.getElementById('dataInicial')?.addEventListener('change', () => {
         atualizarDiaSemanaAutomatico();
@@ -520,11 +526,10 @@ async function abrirProntuarioSessao(pacienteId, dataISO) {
     const identificacao = document.getElementById('prontuarioIdentificacao');
     if (!modal || !campoTexto || !identificacao) return;
 
-    prontuarioSessaoAtual = { pacienteId, dataISO };
+    prontuarioSessaoAtual = { pacienteId, dataISO, nomePaciente: '' };
     arquivosProntuarioSelecionados = [];
     const inputArquivos = document.getElementById('arquivosProntuarioSessao');
     if (inputArquivos) inputArquivos.value = '';
-    atualizarListaArquivosProntuario();
 
     const registro = obterProntuariosSessao()[chaveProntuarioSessao(pacienteId, dataISO)];
     campoTexto.value = registro?.texto || '';
@@ -532,9 +537,18 @@ async function abrirProntuarioSessao(pacienteId, dataISO) {
     if (bancoDados) {
         const resposta = await bancoDados.from('pacientes').select('nome').eq('id', pacienteId);
         const nome = resposta.data?.[0]?.nome;
-        if (nome) identificacao.innerText = `${nome} - Sessao de ${formatarDataBR(criarDataLocal(dataISO))}`;
+        if (nome) {
+            prontuarioSessaoAtual.nomePaciente = nome;
+            identificacao.innerText = `${nome} - Sessao de ${formatarDataBR(criarDataLocal(dataISO))}`;
+        }
     }
+    atualizarListaArquivosProntuario();
+    atualizarLinksProntuarioGoogleDrive(registro);
+    atualizarStatusGoogleDrive();
     modal.style.display = 'flex';
+    if (registro?.driveArquivoProntuarioId && tokenGoogleDriveValido()) {
+        carregarProntuarioDoGoogleDrive({ silencioso: true });
+    }
 }
 window.abrirProntuarioSessao = abrirProntuarioSessao;
 
@@ -547,6 +561,7 @@ window.fecharProntuarioSessao = fecharProntuarioSessao;
 
 function atualizarArquivosProntuarioSelecionados(evento) {
     arquivosProntuarioSelecionados = Array.from(evento.target.files || []).map(arquivo => ({
+        arquivo,
         nome: arquivo.name,
         tamanho: arquivo.size,
         tipo: arquivo.type || 'Arquivo'
@@ -557,24 +572,369 @@ function atualizarArquivosProntuarioSelecionados(evento) {
 function atualizarListaArquivosProntuario() {
     const lista = document.getElementById('listaArquivosProntuario');
     if (!lista) return;
-    if (arquivosProntuarioSelecionados.length === 0) {
+    const registro = prontuarioSessaoAtual
+        ? obterProntuariosSessao()[chaveProntuarioSessao(prontuarioSessaoAtual.pacienteId, prontuarioSessaoAtual.dataISO)]
+        : null;
+    const arquivosSalvos = registro?.anexosDrive || [];
+    if (arquivosProntuarioSelecionados.length === 0 && arquivosSalvos.length === 0) {
         lista.innerText = 'Nenhum arquivo selecionado.';
         return;
     }
-    lista.innerHTML = arquivosProntuarioSelecionados.map(arquivo => `<div>📎 ${escaparHTML(arquivo.nome)} <span>(${Math.ceil(arquivo.tamanho / 1024)} KB)</span></div>`).join('');
+    const salvos = arquivosSalvos.map(arquivo => {
+        const nome = escaparHTML(arquivo.nome);
+        const link = arquivo.webViewLink ? ` <a href="${escaparHTML(arquivo.webViewLink)}" target="_blank" rel="noopener">abrir no Drive</a>` : '';
+        return `<div>☁️ ${nome}${link}</div>`;
+    });
+    const selecionados = arquivosProntuarioSelecionados.map(arquivo => `<div>📎 ${escaparHTML(arquivo.nome)} <span>(${Math.ceil(arquivo.tamanho / 1024)} KB)</span></div>`);
+    lista.innerHTML = [...salvos, ...selecionados].join('');
 }
 
-function salvarProntuarioSessao() {
+function linkGoogleDrive(arquivoId, linkSalvo) {
+    return linkSalvo || (arquivoId ? `https://drive.google.com/open?id=${encodeURIComponent(arquivoId)}` : '');
+}
+
+function atualizarLinksProntuarioGoogleDrive(registro) {
+    const area = document.getElementById('linksProntuarioGoogleDrive');
+    if (!area) return;
+    const arquivoId = registro?.driveArquivoProntuarioId;
+    const pastaId = registro?.drivePastaSessaoId;
+    if (!arquivoId && !pastaId) {
+        area.hidden = true;
+        area.innerHTML = '';
+        return;
+    }
+    const links = [];
+    const arquivoLink = linkGoogleDrive(arquivoId, registro?.driveArquivoProntuarioLink);
+    if (arquivoLink) links.push(`<a href="${escaparHTML(arquivoLink)}" target="_blank" rel="noopener">↗ Abrir / editar prontuário no Drive</a>`);
+    if (pastaId) links.push(`<a href="https://drive.google.com/drive/folders/${encodeURIComponent(pastaId)}" target="_blank" rel="noopener">↗ Abrir pasta da sessão</a>`);
+    area.innerHTML = links.join('');
+    area.hidden = links.length === 0;
+}
+
+function nomePastaDataAtendimento(dataISO) {
+    const [ano, mes, dia] = String(dataISO).split('-');
+    return `${dia}-${mes}-${ano}`;
+}
+
+function nomeSeguroDrive(nome) {
+    return String(nome || 'Paciente sem nome')
+        .replace(/[\\/:*?"<>|]/g, '-')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 160) || 'Paciente sem nome';
+}
+
+function escaparConsultaDrive(valor) {
+    return String(valor).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+function atualizarStatusGoogleDrive(mensagem, status) {
+    const elemento = document.getElementById('statusGoogleDrive');
+    if (!elemento) return;
+    const conectado = Boolean(tokenGoogleDrive && Date.now() < tokenGoogleDriveExpiraEm);
+    elemento.innerText = mensagem || (conectado ? 'Google Drive conectado. Os arquivos serão salvos na pasta privada do paciente.' : 'Google Drive: conecte para carregar ou salvar os arquivos desta sessão.');
+    elemento.dataset.status = status || (conectado ? 'conectado' : 'desconectado');
+}
+
+function tokenGoogleDriveValido() {
+    return Boolean(tokenGoogleDrive && Date.now() < tokenGoogleDriveExpiraEm);
+}
+
+function obterTokenGoogleDrive(exigirConsentimento = false) {
+    if (tokenGoogleDriveValido()) return Promise.resolve(tokenGoogleDrive);
+    if (!window.google?.accounts?.oauth2) {
+        return Promise.reject(new Error('O serviço de autorização do Google ainda não carregou. Verifique sua conexão e tente novamente.'));
+    }
+
+    return new Promise((resolve, reject) => {
+        const cliente = window.google.accounts.oauth2.initTokenClient({
+            client_id: GOOGLE_DRIVE_CLIENT_ID,
+            scope: GOOGLE_DRIVE_ESCOPO,
+            callback: resposta => {
+                if (resposta.error || !resposta.access_token) {
+                    reject(new Error(resposta.error_description || resposta.error || 'A autorização do Google Drive não foi concluída.'));
+                    return;
+                }
+                tokenGoogleDrive = resposta.access_token;
+                tokenGoogleDriveExpiraEm = Date.now() + Math.max(60, Number(resposta.expires_in || 3600) - 30) * 1000;
+                atualizarStatusGoogleDrive('Google Drive conectado.');
+                resolve(tokenGoogleDrive);
+            }
+        });
+        cliente.requestAccessToken({ prompt: exigirConsentimento ? 'consent' : '' });
+    });
+}
+
+async function requisicaoGoogleDrive(url, opcoes = {}) {
+    const token = await obterTokenGoogleDrive();
+    const headers = new Headers(opcoes.headers || {});
+    headers.set('Authorization', `Bearer ${token}`);
+    const resposta = await fetch(url, { ...opcoes, headers });
+    const texto = await resposta.text();
+    let corpo = {};
+    try { corpo = texto ? JSON.parse(texto) : {}; } catch { corpo = texto; }
+    if (!resposta.ok) {
+        const detalhe = corpo?.error?.message || corpo?.error_description || texto || `Erro ${resposta.status}`;
+        throw new Error(detalhe);
+    }
+    return corpo;
+}
+
+async function localizarPastaGoogleDrive(pastaPaiId, nome, propriedades = {}) {
+    const filtros = [
+        `'${escaparConsultaDrive(pastaPaiId)}' in parents`,
+        `name = '${escaparConsultaDrive(nome)}'`,
+        "mimeType = 'application/vnd.google-apps.folder'",
+        'trashed = false'
+    ];
+    Object.entries(propriedades).forEach(([chave, valor]) => {
+        filtros.push(`appProperties has { key='${escaparConsultaDrive(chave)}' and value='${escaparConsultaDrive(valor)}' }`);
+    });
+    const parametros = new URLSearchParams({
+        q: filtros.join(' and '),
+        fields: 'files(id,name,webViewLink,appProperties)',
+        pageSize: '1',
+        spaces: 'drive'
+    });
+    const dados = await requisicaoGoogleDrive(`https://www.googleapis.com/drive/v3/files?${parametros}`);
+    return dados.files?.[0] || null;
+}
+
+async function criarPastaGoogleDrive(nome, pastaPaiId, propriedades = {}) {
+    return requisicaoGoogleDrive('https://www.googleapis.com/drive/v3/files?fields=id,name,webViewLink,appProperties', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            name: nome,
+            mimeType: 'application/vnd.google-apps.folder',
+            parents: [pastaPaiId],
+            appProperties: propriedades
+        })
+    });
+}
+
+async function listarArquivosGoogleDrive(pastaPaiId) {
+    const parametros = new URLSearchParams({
+        q: `'${escaparConsultaDrive(pastaPaiId)}' in parents and trashed = false`,
+        fields: 'files(id,name,webViewLink,mimeType)',
+        pageSize: '100',
+        spaces: 'drive'
+    });
+    const dados = await requisicaoGoogleDrive(`https://www.googleapis.com/drive/v3/files?${parametros}`);
+    return dados.files || [];
+}
+
+async function localizarEstruturaGoogleDrive(paciente, dataISO) {
+    const nomePaciente = nomeSeguroDrive(paciente.nomePaciente);
+    const pastaPaciente = await localizarPastaGoogleDrive(GOOGLE_DRIVE_PASTA_RAIZ_ID, nomePaciente, { agendaPacienteId: String(paciente.pacienteId) });
+    if (!pastaPaciente) return null;
+    const nomeData = nomePastaDataAtendimento(dataISO);
+    const chaveSessao = `${paciente.pacienteId}_${dataISO}`;
+    const pastaSessao = await localizarPastaGoogleDrive(pastaPaciente.id, nomeData, { agendaSessao: chaveSessao });
+    return pastaSessao ? { pastaPaciente, pastaSessao } : null;
+}
+
+async function garantirEstruturaGoogleDrive(paciente, dataISO) {
+    const nomePaciente = nomeSeguroDrive(paciente.nomePaciente);
+    let pastaPaciente = await localizarPastaGoogleDrive(GOOGLE_DRIVE_PASTA_RAIZ_ID, nomePaciente, { agendaPacienteId: String(paciente.pacienteId) });
+    if (!pastaPaciente) {
+        pastaPaciente = await criarPastaGoogleDrive(nomePaciente, GOOGLE_DRIVE_PASTA_RAIZ_ID, { agendaPacienteId: String(paciente.pacienteId) });
+    }
+
+    const nomeData = nomePastaDataAtendimento(dataISO);
+    const chaveSessao = `${paciente.pacienteId}_${dataISO}`;
+    let pastaSessao = await localizarPastaGoogleDrive(pastaPaciente.id, nomeData, { agendaSessao: chaveSessao });
+    if (!pastaSessao) {
+        pastaSessao = await criarPastaGoogleDrive(nomeData, pastaPaciente.id, { agendaSessao: chaveSessao });
+    }
+    return { pastaPaciente, pastaSessao };
+}
+
+async function enviarArquivoGoogleDrive(pastaId, arquivo, nome, arquivoExistenteId = '', opcoes = {}) {
+    const tipo = arquivo.type || 'application/octet-stream';
+    const mimeGoogleWorkspace = opcoes.mimeGoogleWorkspace || '';
+    if (arquivoExistenteId && !mimeGoogleWorkspace) {
+        return requisicaoGoogleDrive(`https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(arquivoExistenteId)}?uploadType=media&fields=id,name,webViewLink,mimeType`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': tipo },
+            body: arquivo
+        });
+    }
+
+    const limite = `agenda_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    const metadadosArquivo = { name: nome };
+    if (arquivoExistenteId) {
+        if (mimeGoogleWorkspace) metadadosArquivo.mimeType = mimeGoogleWorkspace;
+    } else {
+        metadadosArquivo.parents = [pastaId];
+        if (mimeGoogleWorkspace) metadadosArquivo.mimeType = mimeGoogleWorkspace;
+    }
+    const metadados = JSON.stringify(metadadosArquivo);
+    const corpo = new Blob([
+        `--${limite}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadados}\r\n`,
+        `--${limite}\r\nContent-Type: ${tipo}\r\n\r\n`,
+        arquivo,
+        `\r\n--${limite}--`
+    ], { type: `multipart/related; boundary=${limite}` });
+    const endereco = arquivoExistenteId
+        ? `https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(arquivoExistenteId)}?uploadType=multipart&fields=id,name,webViewLink,mimeType`
+        : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,mimeType';
+    return requisicaoGoogleDrive(endereco, {
+        method: arquivoExistenteId ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': `multipart/related; boundary=${limite}` },
+        body: corpo
+    });
+}
+
+async function obterMetadadosArquivoGoogleDrive(arquivoId) {
+    return requisicaoGoogleDrive(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(arquivoId)}?fields=id,name,mimeType,webViewLink,parents`);
+}
+
+async function baixarTextoProntuarioGoogleDrive(arquivoId) {
+    const token = await obterTokenGoogleDrive();
+    const metadados = await obterMetadadosArquivoGoogleDrive(arquivoId);
+    const ehDocumentoGoogle = metadados.mimeType === 'application/vnd.google-apps.document';
+    const endereco = ehDocumentoGoogle
+        ? `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(arquivoId)}/export?mimeType=text%2Fplain`
+        : `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(arquivoId)}?alt=media`;
+    const resposta = await fetch(endereco, {
+        headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!resposta.ok) throw new Error('Não foi possível carregar o texto do prontuário salvo no Drive.');
+    return { texto: await resposta.text(), metadados };
+}
+
+async function carregarProntuarioDoGoogleDrive(opcoes = {}) {
+    const silencioso = Boolean(opcoes.silencioso);
+    try {
+        atualizarStatusGoogleDrive('Carregando prontuário do Google Drive...');
+        await obterTokenGoogleDrive(!silencioso);
+        const sessao = prontuarioSessaoAtual;
+        const chave = sessao && chaveProntuarioSessao(sessao.pacienteId, sessao.dataISO);
+        const prontuarios = obterProntuariosSessao();
+        let registro = chave ? prontuarios[chave] : null;
+        if (!registro?.driveArquivoProntuarioId && sessao?.nomePaciente) {
+            const estrutura = await localizarEstruturaGoogleDrive(sessao, sessao.dataISO);
+            if (estrutura) {
+                const nomeData = nomePastaDataAtendimento(sessao.dataISO);
+                const arquivos = await listarArquivosGoogleDrive(estrutura.pastaSessao.id);
+                const arquivoProntuario = arquivos.find(arquivo => arquivo.nome === `Prontuario - ${nomeData}`)
+                    || arquivos.find(arquivo => arquivo.nome === `Prontuario_${nomeData}.txt`);
+                if (arquivoProntuario) {
+                    registro = {
+                        ...(registro || {}),
+                        pacienteId: sessao.pacienteId,
+                        dataISO: sessao.dataISO,
+                        nomePaciente: sessao.nomePaciente,
+                        drivePastaPacienteId: estrutura.pastaPaciente.id,
+                        drivePastaSessaoId: estrutura.pastaSessao.id,
+                        driveArquivoProntuarioId: arquivoProntuario.id,
+                        driveArquivoProntuarioLink: arquivoProntuario.webViewLink || '',
+                        driveArquivoProntuarioMimeType: arquivoProntuario.mimeType || '',
+                        anexosDrive: arquivos.filter(arquivo => arquivo.id !== arquivoProntuario.id).map(arquivo => ({ id: arquivo.id, nome: arquivo.nome, webViewLink: arquivo.webViewLink || '' })),
+                        atualizadoEm: registro?.atualizadoEm || new Date().toISOString()
+                    };
+                    prontuarios[chave] = registro;
+                    salvarProntuariosSessao(prontuarios);
+                    atualizarListaArquivosProntuario();
+                    atualizarLinksProntuarioGoogleDrive(registro);
+                }
+            }
+        }
+        if (registro?.driveArquivoProntuarioId) {
+            const campoTexto = document.getElementById('textoProntuarioSessao');
+            const conteudo = await baixarTextoProntuarioGoogleDrive(registro.driveArquivoProntuarioId);
+            if (campoTexto) campoTexto.value = conteudo.texto;
+            registro.driveArquivoProntuarioLink = conteudo.metadados.webViewLink || registro.driveArquivoProntuarioLink || '';
+            registro.driveArquivoProntuarioMimeType = conteudo.metadados.mimeType || registro.driveArquivoProntuarioMimeType || '';
+            prontuarios[chave] = registro;
+            salvarProntuariosSessao(prontuarios);
+            atualizarLinksProntuarioGoogleDrive(registro);
+            atualizarListaArquivosProntuario();
+            atualizarStatusGoogleDrive('Prontuário carregado do Google Drive.', 'conectado');
+        } else {
+            atualizarStatusGoogleDrive('Ainda não existe prontuário salvo no Drive para esta sessão.', 'desconectado');
+        }
+    } catch (erro) {
+        console.error(erro);
+        atualizarStatusGoogleDrive(`Não foi possível carregar: ${erro.message}`, 'erro');
+        if (!silencioso) alert(`Google Drive: ${erro.message}`);
+    }
+}
+window.carregarProntuarioDoGoogleDrive = carregarProntuarioDoGoogleDrive;
+
+async function salvarProntuarioSessao() {
     if (!prontuarioSessaoAtual) return;
+    const botao = document.querySelector('#modalProntuario .btn-principal');
     const campoTexto = document.getElementById('textoProntuarioSessao');
+    const texto = campoTexto?.value || '';
+    const chave = chaveProntuarioSessao(prontuarioSessaoAtual.pacienteId, prontuarioSessaoAtual.dataISO);
     const prontuarios = obterProntuariosSessao();
-    prontuarios[chaveProntuarioSessao(prontuarioSessaoAtual.pacienteId, prontuarioSessaoAtual.dataISO)] = {
-        texto: campoTexto?.value || '',
-        atualizadoEm: new Date().toISOString()
-    };
-    salvarProntuariosSessao(prontuarios);
-    alert('Prontuario de teste salvo neste navegador. Os anexos serao habilitados quando o armazenamento privado em nuvem for configurado.');
-    fecharProntuarioSessao();
+    const registroAnterior = prontuarios[chave] || {};
+
+    try {
+        if (botao) {
+            botao.disabled = true;
+            botao.innerText = 'Salvando no Drive...';
+        }
+        atualizarStatusGoogleDrive('Autorizando e preparando as pastas do Google Drive...');
+        await obterTokenGoogleDrive();
+        const estrutura = await garantirEstruturaGoogleDrive(prontuarioSessaoAtual, prontuarioSessaoAtual.dataISO);
+        const nomeData = nomePastaDataAtendimento(prontuarioSessaoAtual.dataISO);
+        const arquivoTexto = new File([texto], `Prontuario - ${nomeData}`, { type: 'text/plain;charset=utf-8' });
+        const arquivosDaSessao = await listarArquivosGoogleDrive(estrutura.pastaSessao.id);
+        const arquivoExistente = registroAnterior.driveArquivoProntuarioId
+            ? { id: registroAnterior.driveArquivoProntuarioId }
+            : arquivosDaSessao.find(arquivo => arquivo.nome === arquivoTexto.name)
+                || arquivosDaSessao.find(arquivo => arquivo.nome === `Prontuario_${nomeData}.txt`);
+        const arquivoProntuario = await enviarArquivoGoogleDrive(
+            estrutura.pastaSessao.id,
+            arquivoTexto,
+            arquivoTexto.name,
+            arquivoExistente?.id || '',
+            { mimeGoogleWorkspace: 'application/vnd.google-apps.document' }
+        );
+
+        const anexosAnteriores = registroAnterior.anexosDrive || [];
+        const anexosDrive = [...anexosAnteriores];
+        for (const item of arquivosProntuarioSelecionados) {
+            const anterior = anexosDrive.find(arquivo => arquivo.nome === item.nome);
+            const enviado = await enviarArquivoGoogleDrive(estrutura.pastaSessao.id, item.arquivo, item.nome, anterior?.id || '');
+            const indice = anexosDrive.findIndex(arquivo => arquivo.nome === item.nome);
+            const dadosArquivo = { id: enviado.id, nome: enviado.name || item.nome, webViewLink: enviado.webViewLink || anterior?.webViewLink || '' };
+            if (indice >= 0) anexosDrive[indice] = dadosArquivo;
+            else anexosDrive.push(dadosArquivo);
+        }
+
+        prontuarios[chave] = {
+            pacienteId: prontuarioSessaoAtual.pacienteId,
+            dataISO: prontuarioSessaoAtual.dataISO,
+            nomePaciente: prontuarioSessaoAtual.nomePaciente,
+            drivePastaPacienteId: estrutura.pastaPaciente.id,
+            drivePastaSessaoId: estrutura.pastaSessao.id,
+            driveArquivoProntuarioId: arquivoProntuario.id,
+            driveArquivoProntuarioLink: arquivoProntuario.webViewLink || registroAnterior.driveArquivoProntuarioLink || '',
+            driveArquivoProntuarioMimeType: arquivoProntuario.mimeType || 'application/vnd.google-apps.document',
+            anexosDrive,
+            atualizadoEm: new Date().toISOString()
+        };
+        salvarProntuariosSessao(prontuarios);
+        arquivosProntuarioSelecionados = [];
+        const inputArquivos = document.getElementById('arquivosProntuarioSessao');
+        if (inputArquivos) inputArquivos.value = '';
+        atualizarListaArquivosProntuario();
+        atualizarLinksProntuarioGoogleDrive(prontuarios[chave]);
+        atualizarStatusGoogleDrive('Prontuário salvo com segurança no Google Drive.', 'conectado');
+    } catch (erro) {
+        console.error(erro);
+        atualizarStatusGoogleDrive(`Erro ao salvar: ${erro.message}`, 'erro');
+        alert(`Não foi possível salvar no Google Drive: ${erro.message}`);
+    } finally {
+        if (botao) {
+            botao.disabled = false;
+            botao.innerText = 'Salvar prontuário';
+        }
+    }
 }
 window.salvarProntuarioSessao = salvarProntuarioSessao;
 
