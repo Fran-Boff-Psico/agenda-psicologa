@@ -9,6 +9,19 @@
     <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
+    <section id="telaAbertura" class="tela-abertura" aria-label="Carregando sistema">
+        <div class="tela-abertura-luz tela-abertura-luz-um"></div>
+        <div class="tela-abertura-luz tela-abertura-luz-dois"></div>
+        <div class="tela-abertura-conteudo">
+            <div class="tela-abertura-logo-area">
+                <img id="logoAbertura" class="tela-abertura-logo" src="" alt="Logotipo da clínica">
+                <div id="simboloAbertura" class="tela-abertura-simbolo" aria-hidden="true">✦</div>
+            </div>
+            <div id="tituloAbertura" class="tela-abertura-titulo">Clínica Integrada</div>
+            <div id="subtituloAbertura" class="tela-abertura-subtitulo">Gestão de Saúde</div>
+            <div class="tela-abertura-indicador" aria-hidden="true"><span></span></div>
+        </div>
+    </section>
     <header class="mobile-topbar">
         <div class="mobile-topbar-brand" aria-label="Identidade da clínica">
             <div id="mobileTituloClinica" class="mobile-topbar-title">Clínica Integrada</div>
@@ -313,6 +326,17 @@
 
                 <div class="form-row">
                     <div class="form-group">
+                        <label>Imagem da Tela de Abertura (Link da Imagem)</label>
+                        <input type="text" id="cfgImagemAberturaUrl" placeholder="https://exemplo.com/imagem-de-abertura.png">
+                    </div>
+                    <div class="form-group">
+                        <label>Ou Anexar Imagem da Tela de Abertura</label>
+                        <input type="file" id="cfgImagemAberturaFile" accept="image/*">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
                         <label>Tema de Cores Geral</label>
                         <select id="cfgTemaSistema">
                             <option value="claro">Tema Claro</option>
@@ -330,6 +354,10 @@
                     <div class="form-group">
                         <label>Cor da Fonte</label>
                         <input type="color" id="cfgCorFonte" value="#334155">
+                    </div>
+                    <div class="form-group">
+                        <label>Cor de Fundo da Tela de Abertura</label>
+                        <input type="color" id="cfgCorFundoAbertura" value="#1e293b">
                     </div>
                 </div>
 
