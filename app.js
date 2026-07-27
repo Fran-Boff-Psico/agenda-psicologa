@@ -19,6 +19,7 @@ const GOOGLE_DRIVE_ESCOPO = 'https://www.googleapis.com/auth/drive';
 let prontuarioSessaoAtual = null;
 let arquivosProntuarioSelecionados = [];
 let reconhecimentoProntuario = null;
+let ditadoProntuarioAtivo = false;
 let tokenGoogleDrive = '';
 let tokenGoogleDriveExpiraEm = 0;
 
@@ -576,6 +577,7 @@ async function abrirProntuarioSessao(pacienteId, dataISO, hora = '') {
 window.abrirProntuarioSessao = abrirProntuarioSessao;
 
 function fecharProntuarioSessao() {
+    ditadoProntuarioAtivo = false;
     if (reconhecimentoProntuario) reconhecimentoProntuario.stop();
     const modal = document.getElementById('modalProntuario');
     if (modal) modal.style.display = 'none';
@@ -1042,50 +1044,135 @@ function alternarDitadoProntuario() {
         alert('O reconhecimento de voz não é compatível com este navegador. Tente abrir no Google Chrome ou Microsoft Edge.');
         return;
     }
-    if (reconhecimentoProntuario) {
-        reconhecimentoProntuario.stop();
+    if (ditadoProntuarioAtivo) {
+        ditadoProntuarioAtivo = false;
+        botao.innerText = '🎙️ Iniciar ditado';
+        if (reconhecimentoProntuario) reconhecimentoProntuario.stop();
         return;
     }
-    reconhecimentoProntuario = new APIReconhecimento();
-    reconhecimentoProntuario.lang = 'pt-BR';
-    reconhecimentoProntuario.continuous = true;
-    reconhecimentoProntuario.interimResults = true;
+
+    const normalizarTextoDitado = texto => String(texto || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLocaleLowerCase('pt-BR')
+        .replace(/[^\p{L}\p{N}]+/gu, ' ')
+        .trim();
+
+    const juntarPalavrasSobrepostas = (textoAtual, novoTexto) => {
+        const atual = String(textoAtual || '').replace(/\s+/g, ' ').trim();
+        const novo = String(novoTexto || '').replace(/\s+/g, ' ').trim();
+        if (!atual) return novo;
+        if (!novo) return atual;
+
+        const atualNormalizado = normalizarTextoDitado(atual);
+        const novoNormalizado = normalizarTextoDitado(novo);
+        if (atualNormalizado === novoNormalizado || atualNormalizado.startsWith(novoNormalizado)) return atual;
+        if (novoNormalizado.startsWith(atualNormalizado)) return novo;
+
+        const palavrasAtuais = atual.split(/\s+/);
+        const palavrasNovas = novo.split(/\s+/);
+        const palavrasAtuaisNormalizadas = normalizarTextoDitado(atual).split(' ').filter(Boolean);
+        const palavrasNovasNormalizadas = normalizarTextoDitado(novo).split(' ').filter(Boolean);
+        const limite = Math.min(palavrasAtuaisNormalizadas.length, palavrasNovasNormalizadas.length);
+        let sobreposicao = 0;
+        for (let tamanho = limite; tamanho > 0; tamanho--) {
+            const fimAtual = palavrasAtuaisNormalizadas.slice(-tamanho).join(' ');
+            const inicioNovo = palavrasNovasNormalizadas.slice(0, tamanho).join(' ');
+            if (fimAtual === inicioNovo) {
+                sobreposicao = tamanho;
+                break;
+            }
+        }
+        return `${atual} ${palavrasNovas.slice(sobreposicao).join(' ')}`.replace(/\s+/g, ' ').trim();
+    };
+
+    const juntarResultadosDaRodada = (textoAtual, novoTexto) => {
+        const atual = String(textoAtual || '').replace(/\s+/g, ' ').trim();
+        const novo = String(novoTexto || '').replace(/\s+/g, ' ').trim();
+        if (!atual) return novo;
+        if (!novo) return atual;
+        const atualNormalizado = normalizarTextoDitado(atual);
+        const novoNormalizado = normalizarTextoDitado(novo);
+        // Alguns celulares enviam o mesmo trecho expandido em índices sucessivos.
+        // Nesse caso, substituímos pelo trecho maior em vez de duplicar as palavras.
+        if (novoNormalizado.startsWith(atualNormalizado) && novoNormalizado.length > atualNormalizado.length) return novo;
+        return `${atual} ${novo}`.replace(/\s+/g, ' ').trim();
+    };
+
     const textoBase = campoTexto.value.trim();
-    const resultadosFinais = new Map();
+    let textoConfirmado = '';
     let textoParcial = '';
+    let ultimoResultadoFinalDaRodada = '';
+    ditadoProntuarioAtivo = true;
 
     const montarTextoDitado = () => {
-        const textoConfirmado = Array.from(resultadosFinais.entries())
-            .sort(([indiceA], [indiceB]) => indiceA - indiceB)
-            .map(([, trecho]) => trecho)
-            .join(' ')
-            .trim();
-        campoTexto.value = [textoBase, textoConfirmado, textoParcial]
+        const textoEmAndamento = juntarPalavrasSobrepostas(textoConfirmado, textoParcial);
+        campoTexto.value = [textoBase, textoEmAndamento]
             .filter(Boolean)
             .join(' ')
             .replace(/\s+/g, ' ')
             .trimStart();
     };
 
-    reconhecimentoProntuario.onstart = () => { botao.innerText = '⏹️ Parar ditado'; };
-    reconhecimentoProntuario.onresult = evento => {
-        textoParcial = '';
-        for (let i = evento.resultIndex; i < evento.results.length; i++) {
-            const texto = String(evento.results[i][0].transcript || '').replace(/\s+/g, ' ').trim();
-            if (evento.results[i].isFinal) {
-                resultadosFinais.set(i, texto);
-            } else {
-                textoParcial += `${texto} `;
+    const iniciarReconhecimento = () => {
+        if (!ditadoProntuarioAtivo) return;
+        const reconhecimento = new APIReconhecimento();
+        reconhecimento.lang = 'pt-BR';
+        reconhecimento.continuous = true;
+        reconhecimento.interimResults = true;
+        reconhecimentoProntuario = reconhecimento;
+
+        reconhecimento.onstart = () => {
+            if (ditadoProntuarioAtivo) botao.innerText = '⏹️ Encerrar ditado';
+        };
+        reconhecimento.onresult = evento => {
+            let finaisDaRodada = '';
+            let parciaisDaRodada = '';
+            for (let i = 0; i < evento.results.length; i++) {
+                const texto = String(evento.results[i][0]?.transcript || '').replace(/\s+/g, ' ').trim();
+                if (!texto) continue;
+                if (evento.results[i].isFinal) {
+                    finaisDaRodada = juntarResultadosDaRodada(finaisDaRodada, texto);
+                } else {
+                    parciaisDaRodada = juntarResultadosDaRodada(parciaisDaRodada, texto);
+                }
             }
+            const assinaturaFinal = normalizarTextoDitado(finaisDaRodada);
+            if (assinaturaFinal && assinaturaFinal !== ultimoResultadoFinalDaRodada) {
+                textoConfirmado = juntarPalavrasSobrepostas(textoConfirmado, finaisDaRodada);
+                ultimoResultadoFinalDaRodada = assinaturaFinal;
+            }
+            textoParcial = parciaisDaRodada;
+            montarTextoDitado();
+        };
+        reconhecimento.onerror = evento => {
+            if (evento.error === 'not-allowed' || evento.error === 'service-not-allowed') {
+                ditadoProntuarioAtivo = false;
+                reconhecimentoProntuario = null;
+                botao.innerText = '🎙️ Iniciar ditado';
+                alert('Não foi possível acessar o microfone. Autorize o uso do microfone no navegador e tente novamente.');
+            }
+        };
+        reconhecimento.onend = () => {
+            if (reconhecimentoProntuario === reconhecimento) reconhecimentoProntuario = null;
+            textoParcial = '';
+            montarTextoDitado();
+            if (!ditadoProntuarioAtivo) {
+                botao.innerText = '🎙️ Iniciar ditado';
+                return;
+            }
+            // O Chrome pode encerrar a sessão depois de uma pausa ou de silêncio.
+            // Enquanto o usuário não tocar em "Encerrar ditado", iniciamos outra sessão.
+            window.setTimeout(iniciarReconhecimento, 250);
+        };
+        try {
+            reconhecimento.start();
+        } catch (erro) {
+            if (ditadoProntuarioAtivo) window.setTimeout(iniciarReconhecimento, 500);
         }
-        textoParcial = textoParcial.trim();
-        montarTextoDitado();
     };
-    reconhecimentoProntuario.onend = () => {
-        reconhecimentoProntuario = null;
-        botao.innerText = '🎙️ Iniciar ditado';
-    };
-    reconhecimentoProntuario.start();
+
+    iniciarReconhecimento();
 }
 window.alternarDitadoProntuario = alternarDitadoProntuario;
 
@@ -1819,6 +1906,141 @@ function criarPdfCompartilhavelRelatorio(textoRelatorio) {
     return new Blob([pdf], { type: 'application/pdf' });
 }
 
+function coletarDadosPdfCompartilhavel() {
+    const tabela = document.querySelector('#resultadoRelatorio table');
+    if (!tabela) return null;
+    const paciente = document.getElementById('filtroPacienteRelatorio')?.selectedOptions[0]?.text || 'Todos os pacientes';
+    const inicio = document.getElementById('dataInicioRelatorio')?.value;
+    const fim = document.getElementById('dataFimRelatorio')?.value;
+    const inicioBR = inicio ? formatarDataBR(criarDataLocal(inicio)) : '--';
+    const fimBR = fim ? formatarDataBR(criarDataLocal(fim)) : '--';
+    const registros = Array.from(tabela.querySelectorAll('tbody tr')).map(linha => {
+        const celulas = Array.from(linha.cells).slice(0, 7).map(celula => celula.innerText.trim());
+        return { data: celulas[0] || '', paciente: celulas[1] || '', hora: celulas[2] || '', modalidade: celulas[3] || '', status: celulas[4] || '', pagamento: celulas[5] || '', valor: celulas[6] || '' };
+    });
+    const total = registros.reduce((soma, registro) => soma + Number((registro.valor || '0').replace(/[^0-9,]/g, '').replace(',', '.')), 0);
+    const texto = `Demonstrativo Financeiro de Atendimentos\nPaciente: ${paciente}\nPeríodo: ${inicioBR} a ${fimBR}\n\n${registros.map(registro => [registro.data, registro.paciente, registro.hora, registro.modalidade, registro.status, registro.pagamento, registro.valor].join(' | ')).join('\n')}\n\nTotal: ${formatarMoeda(total)}`;
+    return { paciente, inicioBR, fimBR, registros, total, texto };
+}
+
+function obterLogoRelatorioCompartilhavel() {
+    return gerarPdfRelatorio.toString().match(/const logoRelatorio = '([^']+)';/)?.[1] || '';
+}
+
+async function converterLogoRelatorioEmJpeg(dataUrl) {
+    if (!dataUrl) return null;
+    return new Promise(resolve => {
+        const imagem = new Image();
+        imagem.onload = () => {
+            const largura = Math.min(520, imagem.naturalWidth || 520);
+            const altura = Math.max(1, Math.round(largura * ((imagem.naturalHeight || 180) / (imagem.naturalWidth || largura))));
+            const canvas = document.createElement('canvas');
+            canvas.width = largura;
+            canvas.height = altura;
+            const contexto = canvas.getContext('2d');
+            contexto.fillStyle = '#ffffff';
+            contexto.fillRect(0, 0, largura, altura);
+            contexto.drawImage(imagem, 0, 0, largura, altura);
+            const binario = atob(canvas.toDataURL('image/jpeg', 0.9).split(',')[1] || '');
+            const bytes = new Uint8Array(binario.length);
+            for (let indice = 0; indice < binario.length; indice++) bytes[indice] = binario.charCodeAt(indice);
+            resolve({ bytes, largura, altura });
+        };
+        imagem.onerror = () => resolve(null);
+        imagem.src = dataUrl;
+    });
+}
+
+function criarPdfCompletoCompartilhavel(dados, logo) {
+    const codificador = new TextEncoder();
+    const paraPdf = valor => String(valor || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7E]/g, ' ').replace(/\s+/g, ' ').trim().replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+    const limitar = (valor, limite) => {
+        const texto = paraPdf(valor);
+        return texto.length > limite ? `${texto.slice(0, limite - 3)}...` : texto;
+    };
+    const linhasPorPagina = 16;
+    const paginas = [];
+    for (let indice = 0; indice < dados.registros.length; indice += linhasPorPagina) paginas.push(dados.registros.slice(indice, indice + linhasPorPagina));
+    if (!paginas.length) paginas.push([]);
+
+    const objetos = [];
+    const idLogo = logo ? 3 : 0;
+    let proximoId = logo ? 4 : 3;
+    const paginasIds = paginas.map(registros => ({ registros, pagina: proximoId++, conteudo: proximoId++ }));
+    objetos[1] = { texto: '<< /Type /Catalog /Pages 2 0 R >>' };
+    objetos[2] = { texto: `<< /Type /Pages /Kids [${paginasIds.map(pagina => `${pagina.pagina} 0 R`).join(' ')}] /Count ${paginasIds.length} >>` };
+    if (logo) objetos[idLogo] = { dicionario: `<< /Type /XObject /Subtype /Image /Width ${logo.largura} /Height ${logo.altura} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${logo.bytes.length} >>`, bytes: logo.bytes };
+
+    const larguras = [70, 190, 140, 100, 110, 152];
+    paginasIds.forEach((pagina, indicePagina) => {
+        const comandos = [];
+        const escrever = (fonte, tamanho, x, y, texto) => comandos.push(`BT /${fonte} ${tamanho} Tf 1 0 0 1 ${x} ${y} Tm (${paraPdf(texto)}) Tj ET`);
+        if (logo) {
+            const larguraLogo = 170;
+            const alturaLogo = Math.min(76, larguraLogo * (logo.altura / logo.largura));
+            comandos.push('q', `${larguraLogo} 0 0 ${alturaLogo} 40 ${540 - alturaLogo} cm`, '/Logo Do', 'Q');
+        }
+        escrever('F2', 17, 250, 540, 'Demonstrativo Financeiro de Atendimentos');
+        escrever('F1', 9, 250, 520, `Paciente: ${dados.paciente}`);
+        escrever('F1', 9, 250, 506, `Período: ${dados.inicioBR} a ${dados.fimBR}`);
+        comandos.push('0.25 0.45 0.46 RG', '1.1 w', '40 486 m 802 486 l S', '0.91 0.94 0.96 rg', '40 452 762 18 re f');
+        let xCabecalho = 40;
+        ['Data', 'Paciente', 'Atendimento', 'Status', 'Pagamento', 'Valor'].forEach((rotulo, indice) => {
+            escrever('F2', 7, xCabecalho + 5, 458, rotulo);
+            xCabecalho += larguras[indice];
+        });
+        pagina.registros.forEach((registro, indiceLinha) => {
+            const y = 437 - (indiceLinha * 22);
+            const campos = [limitar(registro.data, 12), limitar(registro.paciente, 34), limitar(`${registro.hora} - ${registro.modalidade}`, 25), limitar(registro.status, 16), limitar(registro.pagamento, 18), limitar(registro.valor, 20)];
+            let x = 40;
+            campos.forEach((campo, indiceCampo) => {
+                escrever('F1', 7.5, x + 5, y, campo);
+                x += larguras[indiceCampo];
+            });
+            comandos.push('0.78 0.82 0.87 RG', '0.4 w', `40 ${y - 7} m 802 ${y - 7} l S`);
+        });
+        if (indicePagina === paginasIds.length - 1) escrever('F2', 11, 650, 54, `Total: ${formatarMoeda(dados.total)}`);
+        escrever('F1', 7, 745, 24, `Página ${indicePagina + 1} de ${paginasIds.length}`);
+        const bytesFluxo = codificador.encode(comandos.join('\n'));
+        const recursoLogo = logo ? `/XObject << /Logo ${idLogo} 0 R >>` : '';
+        objetos[pagina.pagina] = { texto: `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> /F2 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >> >> ${recursoLogo} >> /Contents ${pagina.conteudo} 0 R >>` };
+        objetos[pagina.conteudo] = { dicionario: `<< /Length ${bytesFluxo.length} >>`, bytes: bytesFluxo };
+    });
+
+    const partes = [];
+    const deslocamentos = [0];
+    let tamanho = 0;
+    const adicionarTexto = texto => { const bytes = codificador.encode(texto); partes.push(bytes); tamanho += bytes.length; };
+    const adicionarBytes = bytes => { partes.push(bytes); tamanho += bytes.length; };
+    adicionarTexto('%PDF-1.4\n');
+    for (let indice = 1; indice < objetos.length; indice++) {
+        deslocamentos[indice] = tamanho;
+        const objeto = objetos[indice];
+        adicionarTexto(`${indice} 0 obj\n`);
+        if (objeto.bytes) {
+            adicionarTexto(`${objeto.dicionario}\nstream\n`);
+            adicionarBytes(objeto.bytes);
+            adicionarTexto('\nendstream\nendobj\n');
+        } else {
+            adicionarTexto(`${objeto.texto}\nendobj\n`);
+        }
+    }
+    const inicioXref = tamanho;
+    adicionarTexto(`xref\n0 ${objetos.length}\n0000000000 65535 f \n`);
+    for (let indice = 1; indice < objetos.length; indice++) adicionarTexto(`${String(deslocamentos[indice]).padStart(10, '0')} 00000 n \n`);
+    adicionarTexto(`trailer\n<< /Size ${objetos.length} /Root 1 0 R >>\nstartxref\n${inicioXref}\n%%EOF`);
+    const arquivo = new Uint8Array(partes.reduce((soma, parte) => soma + parte.length, 0));
+    let posicao = 0;
+    partes.forEach(parte => { arquivo.set(parte, posicao); posicao += parte.length; });
+    return new Blob([arquivo], { type: 'application/pdf' });
+}
+
+async function criarPdfCompartilhavelCompleto() {
+    const dados = coletarDadosPdfCompartilhavel();
+    const logo = await converterLogoRelatorioEmJpeg(obterLogoRelatorioCompartilhavel());
+    return { dados, pdf: criarPdfCompletoCompartilhavel(dados, logo) };
+}
+
 async function exportarRelatorioFinanceiro() {
     const resultado = document.getElementById('resultadoRelatorio');
     if (!resultado?.querySelector('table')) {
@@ -1828,14 +2050,17 @@ async function exportarRelatorioFinanceiro() {
     const telaMobile = window.matchMedia?.('(max-width: 760px)').matches;
     if (telaMobile && navigator.share) {
         try {
-            const textoRelatorio = montarTextoParaCompartilharRelatorio();
-            const arquivoPdf = new File([criarPdfCompartilhavelRelatorio(textoRelatorio)], 'demonstrativo-financeiro-atendimentos.pdf', { type: 'application/pdf' });
-            const dadosCompartilhamento = {
+            const relatorioPdf = await criarPdfCompartilhavelCompleto();
+            const arquivoPdf = new File([relatorioPdf.pdf], 'demonstrativo-financeiro-atendimentos.pdf', { type: 'application/pdf' });
+            if (!navigator.canShare?.({ files: [arquivoPdf] })) {
+                alert('Este navegador não permite compartilhar arquivos PDF. Atualize o navegador do celular e tente novamente.');
+                return;
+            }
+            await navigator.share({
                 title: 'Demonstrativo Financeiro de Atendimentos',
-                text: textoRelatorio
-            };
-            if (navigator.canShare?.({ files: [arquivoPdf] })) dadosCompartilhamento.files = [arquivoPdf];
-            await navigator.share(dadosCompartilhamento);
+                text: relatorioPdf.dados.texto,
+                files: [arquivoPdf]
+            });
         } catch (erro) {
             if (erro?.name !== 'AbortError') console.error('Não foi possível compartilhar o relatório.', erro);
         }
