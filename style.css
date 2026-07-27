@@ -73,6 +73,173 @@ body {
     transition: background-color 0.3s;
 }
 
+html.tela-abertura-ativa,
+body.tela-abertura-ativa {
+    overflow: hidden;
+    height: 100%;
+}
+
+.tela-abertura {
+    position: fixed;
+    z-index: 10000;
+    inset: 0;
+    min-height: 100vh;
+    min-height: 100svh;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    padding: 32px;
+    color: var(--splash-text, #fff);
+    background: var(--splash-bg, var(--sidebar-bg));
+    isolation: isolate;
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.42s ease, visibility 0.42s ease;
+}
+
+.tela-abertura[hidden] {
+    display: none;
+}
+
+.tela-abertura::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -2;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent 42%, rgba(0, 0, 0, 0.18));
+}
+
+.tela-abertura-luz {
+    position: absolute;
+    z-index: -1;
+    width: min(44vw, 620px);
+    aspect-ratio: 1;
+    border-radius: 50%;
+    filter: blur(10px);
+    opacity: 0.28;
+    background: var(--primary-color);
+}
+
+.tela-abertura-luz-um {
+    top: -19%;
+    left: -10%;
+}
+
+.tela-abertura-luz-dois {
+    right: -14%;
+    bottom: -28%;
+    opacity: 0.18;
+}
+
+.tela-abertura-conteudo {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: min(700px, 86vw);
+    min-height: min(520px, 74vh);
+    padding: clamp(30px, 6vw, 64px);
+    text-align: center;
+    border: 1px solid var(--splash-card-border, rgba(255, 255, 255, 0.28));
+    border-radius: 28px;
+    background: var(--splash-card-bg, rgba(255, 255, 255, 0.1));
+    box-shadow: 0 28px 70px rgba(0, 0, 0, 0.28);
+    backdrop-filter: blur(12px);
+    animation: entrada-tela-abertura 0.55s ease-out both;
+}
+
+.tela-abertura-logo-area {
+    display: grid;
+    place-items: center;
+    width: min(460px, 100%);
+    min-height: 190px;
+    margin-bottom: 22px;
+}
+
+.tela-abertura-logo {
+    display: none;
+    width: 100%;
+    max-height: 230px;
+    object-fit: contain;
+    border-radius: 14px;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+}
+
+.tela-abertura-simbolo {
+    display: grid;
+    place-items: center;
+    width: 122px;
+    height: 122px;
+    border: 1px solid var(--splash-card-border, rgba(255, 255, 255, 0.55));
+    border-radius: 50%;
+    color: var(--splash-text, #fff);
+    font-size: 3.1rem;
+    line-height: 1;
+    background: var(--splash-card-bg, rgba(255, 255, 255, 0.12));
+    box-shadow: inset 0 0 0 12px rgba(255, 255, 255, 0.05);
+}
+
+.tela-abertura-titulo {
+    max-width: 100%;
+    color: var(--splash-text, #fff);
+    font-size: clamp(1.7rem, 4vw, 2.85rem);
+    font-weight: 750;
+    line-height: 1.15;
+    overflow-wrap: anywhere;
+    text-shadow: 0 2px 18px rgba(0, 0, 0, 0.2);
+}
+
+.tela-abertura-subtitulo {
+    margin-top: 9px;
+    color: var(--splash-muted, rgba(255, 255, 255, 0.88));
+    font-size: clamp(0.95rem, 1.8vw, 1.16rem);
+    font-weight: 500;
+    letter-spacing: 0.025em;
+}
+
+.tela-abertura-indicador {
+    width: min(170px, 48%);
+    height: 4px;
+    margin-top: 38px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--splash-indicator-bg, rgba(255, 255, 255, 0.24));
+}
+
+.tela-abertura-indicador span {
+    display: block;
+    width: 46%;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--splash-text, #fff);
+    animation: carregamento-tela-abertura 1.35s ease-in-out infinite;
+}
+
+.tela-abertura-saindo {
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+}
+
+@keyframes entrada-tela-abertura {
+    from { opacity: 0; transform: translateY(14px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes carregamento-tela-abertura {
+    0% { transform: translateX(-115%); }
+    100% { transform: translateX(265%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tela-abertura,
+    .tela-abertura-conteudo,
+    .tela-abertura-indicador span {
+        animation: none;
+        transition: none;
+    }
+}
+
 .sidebar-menu {
     width: 220px;
     height: 100vh;
@@ -1044,6 +1211,42 @@ body.dark-theme .box-escopo-conta small {
 }
 
 @media (max-width: 760px) {
+    .tela-abertura {
+        min-height: 100svh;
+        padding: 20px;
+    }
+
+    .tela-abertura-luz {
+        width: 88vw;
+        filter: blur(16px);
+    }
+
+    .tela-abertura-conteudo {
+        width: 100%;
+        min-height: 66svh;
+        padding: 30px 22px;
+        border-radius: 24px;
+    }
+
+    .tela-abertura-logo-area {
+        min-height: 150px;
+        margin-bottom: 20px;
+    }
+
+    .tela-abertura-logo {
+        max-height: 170px;
+    }
+
+    .tela-abertura-simbolo {
+        width: 104px;
+        height: 104px;
+        font-size: 2.7rem;
+    }
+
+    .tela-abertura-indicador {
+        margin-top: 32px;
+    }
+
     .texto-exportar-desktop {
         display: none;
     }
