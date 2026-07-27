@@ -1344,6 +1344,21 @@ function transformarContasPagarEmLinhas(contas) {
     });
 }
 
+function obterStatusAtendimentoDaLinhaFinanceira(linha, base) {
+    if (!linha?.pacienteId || !linha?.dataISO || !base) return '—';
+
+    const agendamento = (base.agendamentos || []).find(item =>
+        String(item.paciente_id) === String(linha.pacienteId) && item.data === linha.dataISO
+    );
+    if (agendamento) return agendamento.status || 'Agendado';
+
+    const plano = (base.planos || []).find(item =>
+        String(item.paciente_id) === String(linha.pacienteId)
+        && checarDataCorrespondeAoPlano(criarDataLocal(linha.dataISO), item.data_inicio, item.dia_semana, item.frequencia)
+    );
+    return plano ? 'Agendado' : '—';
+}
+
 function atualizarCardsFinanceiros(totais, pagar, ids = {}) {
     const saldo = totais.previsto - pagar;
     if (document.getElementById(ids.previsto || 'previsaoMesAtual')) document.getElementById(ids.previsto || 'previsaoMesAtual').innerText = formatarMoeda(totais.previsto);
@@ -1603,9 +1618,10 @@ async function carregarTelaContas(tipo) {
     let totais = { previsto: 0, recebido: 0, aReceber: 0 };
     let pagar = totalizarContas(contasNoPeriodo('pagar', periodo.inicio, periodo.fim), true);
     let linhas = [];
+    let baseFinanceira = null;
     if (bancoDados) {
-        const base = await buscarBaseFinanceira();
-        const ocorrencias = montarOcorrenciasFinanceiras(base, periodo.inicio, periodo.fim).concat(transformarContasReceberEmLinhas(contasNoPeriodo('receber', periodo.inicio, periodo.fim)));
+        baseFinanceira = await buscarBaseFinanceira();
+        const ocorrencias = montarOcorrenciasFinanceiras(baseFinanceira, periodo.inicio, periodo.fim).concat(transformarContasReceberEmLinhas(contasNoPeriodo('receber', periodo.inicio, periodo.fim)));
         totais = calcularTotaisFinanceiros(ocorrencias);
         linhas = tipo === 'receber' ? ocorrencias : transformarContasPagarEmLinhas(contasTipo);
     } else {
@@ -1616,10 +1632,13 @@ async function carregarTelaContas(tipo) {
     if (filtro === 'pago') linhas = linhas.filter(linha => linha.pago);
     if (filtro === 'aberto') linhas = linhas.filter(linha => !linha.pago);
     if (linhas.length === 0) { lista.innerHTML = 'Nenhuma conta encontrada para os filtros selecionados.'; return; }
-    lista.innerHTML = `<table class="tabela-relatorio"><thead><tr><th>Data</th><th>${tipo === 'pagar' ? 'Paciente / Descricao' : 'Paciente / Descricao'}</th><th>Categoria</th><th>Pagamento</th><th>Valor</th><th></th></tr></thead><tbody>${linhas.map(linha => {
+    lista.innerHTML = `<table class="tabela-relatorio"><thead><tr><th>Data</th><th>Paciente / Descricao</th><th>Categoria</th><th>Status do atendimento</th><th>Pagamento</th><th>Valor</th><th></th></tr></thead><tbody>${linhas.map(linha => {
         const contaManual = linha.contaId ? obterContasManuais().find(conta => conta.id === linha.contaId) : null;
         const pagamento = contaManual ? `<label class="checkbox-pagamento checkbox-tabela"><input type="checkbox" ${linha.pago ? 'checked' : ''} onchange="alternarContaPaga('${linha.contaId}', '${tipo}', this.checked, '${linha.chavePagamento || ''}')"><span>Pago</span></label>` : `<span class="${linha.pago ? 'badge-pago' : 'badge-aberto'}">${linha.pago ? 'Pago' : 'Em aberto'}</span>`;
-        return `<tr><td>${formatarDataBR(linha.dataObj)}</td><td>${escaparHTML(linha.pacienteNome)}</td><td>${escaparHTML(linha.modalidade || '')}</td><td>${pagamento}</td><td>${formatarMoeda(linha.valor)}</td><td>${contaManual && !linha.recorrente ? `<button class="btn-perigo btn-conta-excluir" onclick="excluirContaManual('${linha.contaId}', '${tipo}')">Excluir</button>` : ''}</td></tr>`;
+        const statusAtendimento = linha.pacienteId
+            ? (tipo === 'receber' ? (linha.status || 'Agendado') : obterStatusAtendimentoDaLinhaFinanceira(linha, baseFinanceira))
+            : '—';
+        return `<tr><td>${formatarDataBR(linha.dataObj)}</td><td>${escaparHTML(linha.pacienteNome)}</td><td>${escaparHTML(linha.modalidade || '')}</td><td>${escaparHTML(statusAtendimento)}</td><td>${pagamento}</td><td>${formatarMoeda(linha.valor)}</td><td>${contaManual && !linha.recorrente ? `<button class="btn-perigo btn-conta-excluir" onclick="excluirContaManual('${linha.contaId}', '${tipo}')">Excluir</button>` : ''}</td></tr>`;
     }).join('')}</tbody></table>`;
 }
 
