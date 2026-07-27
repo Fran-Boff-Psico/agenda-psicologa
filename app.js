@@ -1086,15 +1086,42 @@ function alternarDitadoProntuario() {
         .replace(/[^\p{L}\p{N}]+/gu, ' ')
         .trim();
 
-    const juntarPalavrasSobrepostas = (textoAtual, novoTexto) => {
+    const removerEcoInterno = texto => {
+        let palavras = String(texto || '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+        let palavrasNormalizadas = normalizarTextoDitado(palavras.join(' ')).split(' ').filter(Boolean);
+
+        // Em alguns aparelhos o mesmo início é reenviado dentro do próprio resultado,
+        // por exemplo: "hoje é hoje é 27". Mantemos apenas a versão mais completa.
+        for (let inicioRepeticao = 1; inicioRepeticao < palavrasNormalizadas.length; inicioRepeticao++) {
+            let tamanhoRepetido = 0;
+            while (
+                inicioRepeticao + tamanhoRepetido < palavrasNormalizadas.length &&
+                palavrasNormalizadas[tamanhoRepetido] === palavrasNormalizadas[inicioRepeticao + tamanhoRepetido]
+            ) {
+                tamanhoRepetido++;
+            }
+            if (tamanhoRepetido >= 2 || (inicioRepeticao === 1 && tamanhoRepetido === 1)) {
+                palavras = palavras.slice(inicioRepeticao);
+                palavrasNormalizadas = palavrasNormalizadas.slice(inicioRepeticao);
+                inicioRepeticao = 0;
+            }
+        }
+        return palavras.join(' ');
+    };
+
+    const juntarTrechoFinal = (textoAtual, novoTexto) => {
         const atual = String(textoAtual || '').replace(/\s+/g, ' ').trim();
-        const novo = String(novoTexto || '').replace(/\s+/g, ' ').trim();
+        const novo = removerEcoInterno(novoTexto);
         if (!atual) return novo;
         if (!novo) return atual;
 
         const atualNormalizado = normalizarTextoDitado(atual);
         const novoNormalizado = normalizarTextoDitado(novo);
-        if (atualNormalizado === novoNormalizado || atualNormalizado.startsWith(novoNormalizado)) return atual;
+        if (
+            atualNormalizado === novoNormalizado ||
+            atualNormalizado.startsWith(novoNormalizado) ||
+            atualNormalizado.includes(novoNormalizado)
+        ) return atual;
         if (novoNormalizado.startsWith(atualNormalizado)) return novo;
 
         const palavrasAtuais = atual.split(/\s+/);
@@ -1111,31 +1138,30 @@ function alternarDitadoProntuario() {
                 break;
             }
         }
-        return `${atual} ${palavrasNovas.slice(sobreposicao).join(' ')}`.replace(/\s+/g, ' ').trim();
-    };
+        if (sobreposicao) {
+            return `${atual} ${palavrasNovas.slice(sobreposicao).join(' ')}`.replace(/\s+/g, ' ').trim();
+        }
 
-    const juntarResultadosDaRodada = (textoAtual, novoTexto) => {
-        const atual = String(textoAtual || '').replace(/\s+/g, ' ').trim();
-        const novo = String(novoTexto || '').replace(/\s+/g, ' ').trim();
-        if (!atual) return novo;
-        if (!novo) return atual;
-        const atualNormalizado = normalizarTextoDitado(atual);
-        const novoNormalizado = normalizarTextoDitado(novo);
-        // Alguns celulares enviam o mesmo trecho expandido em índices sucessivos.
-        // Nesse caso, substituímos pelo trecho maior em vez de duplicar as palavras.
-        if (novoNormalizado.startsWith(atualNormalizado) && novoNormalizado.length > atualNormalizado.length) return novo;
-        return `${atual} ${novo}`.replace(/\s+/g, ' ').trim();
+        let prefixoEmComum = 0;
+        while (
+            prefixoEmComum < palavrasAtuaisNormalizadas.length &&
+            prefixoEmComum < palavrasNovasNormalizadas.length &&
+            palavrasAtuaisNormalizadas[prefixoEmComum] === palavrasNovasNormalizadas[prefixoEmComum]
+        ) {
+            prefixoEmComum++;
+        }
+        // Um resultado final corrigido costuma repetir o início e trocar o final.
+        // Substituímos o trecho anterior para não duplicar a frase no prontuário.
+        if (prefixoEmComum >= 2) return novo;
+        return `${atual} ${palavrasNovas.slice(sobreposicao).join(' ')}`.replace(/\s+/g, ' ').trim();
     };
 
     const textoBase = campoTexto.value.trim();
     let textoConfirmado = '';
-    let textoParcial = '';
-    let ultimoResultadoFinalDaRodada = '';
     ditadoProntuarioAtivo = true;
 
     const montarTextoDitado = () => {
-        const textoEmAndamento = juntarPalavrasSobrepostas(textoConfirmado, textoParcial);
-        campoTexto.value = [textoBase, textoEmAndamento]
+        campoTexto.value = [textoBase, textoConfirmado]
             .filter(Boolean)
             .join(' ')
             .replace(/\s+/g, ' ')
@@ -1146,31 +1172,27 @@ function alternarDitadoProntuario() {
         if (!ditadoProntuarioAtivo) return;
         const reconhecimento = new APIReconhecimento();
         reconhecimento.lang = 'pt-BR';
-        reconhecimento.continuous = true;
-        reconhecimento.interimResults = true;
+        // O modo contínuo do Web Speech costuma duplicar resultados provisórios no Chrome móvel.
+        // Finalizamos cada trecho e iniciamos outro automaticamente enquanto o usuário desejar ditar.
+        reconhecimento.continuous = false;
+        reconhecimento.interimResults = false;
+        reconhecimento.maxAlternatives = 1;
         reconhecimentoProntuario = reconhecimento;
+        const resultadosFinaisDoCiclo = new Map();
 
         reconhecimento.onstart = () => {
             if (ditadoProntuarioAtivo) botao.innerText = '⏹️ Encerrar ditado';
         };
         reconhecimento.onresult = evento => {
-            let finaisDaRodada = '';
-            let parciaisDaRodada = '';
-            for (let i = 0; i < evento.results.length; i++) {
+            for (let i = evento.resultIndex; i < evento.results.length; i++) {
+                if (!evento.results[i].isFinal) continue;
                 const texto = String(evento.results[i][0]?.transcript || '').replace(/\s+/g, ' ').trim();
                 if (!texto) continue;
-                if (evento.results[i].isFinal) {
-                    finaisDaRodada = juntarResultadosDaRodada(finaisDaRodada, texto);
-                } else {
-                    parciaisDaRodada = juntarResultadosDaRodada(parciaisDaRodada, texto);
-                }
+                const assinatura = normalizarTextoDitado(texto);
+                if (!assinatura || resultadosFinaisDoCiclo.get(i) === assinatura) continue;
+                resultadosFinaisDoCiclo.set(i, assinatura);
+                textoConfirmado = juntarTrechoFinal(textoConfirmado, texto);
             }
-            const assinaturaFinal = normalizarTextoDitado(finaisDaRodada);
-            if (assinaturaFinal && assinaturaFinal !== ultimoResultadoFinalDaRodada) {
-                textoConfirmado = juntarPalavrasSobrepostas(textoConfirmado, finaisDaRodada);
-                ultimoResultadoFinalDaRodada = assinaturaFinal;
-            }
-            textoParcial = parciaisDaRodada;
             montarTextoDitado();
         };
         reconhecimento.onerror = evento => {
@@ -1183,14 +1205,12 @@ function alternarDitadoProntuario() {
         };
         reconhecimento.onend = () => {
             if (reconhecimentoProntuario === reconhecimento) reconhecimentoProntuario = null;
-            textoParcial = '';
-            montarTextoDitado();
             if (!ditadoProntuarioAtivo) {
                 botao.innerText = '🎙️ Iniciar ditado';
                 return;
             }
-            // O Chrome pode encerrar a sessão depois de uma pausa ou de silêncio.
-            // Enquanto o usuário não tocar em "Encerrar ditado", iniciamos outra sessão.
+            // O Chrome encerra o trecho após fala ou silêncio. Mantemos o ditado
+            // ativo para o usuário e criamos a próxima escuta automaticamente.
             window.setTimeout(iniciarReconhecimento, 250);
         };
         try {
