@@ -10,14 +10,17 @@
 </head>
 <body>
     <header class="mobile-topbar">
-        <div class="mobile-topbar-title">Agenda Psicologa</div>
+        <div class="mobile-topbar-brand" aria-label="Identidade da clínica">
+            <div id="mobileTituloClinica" class="mobile-topbar-title">Clínica Integrada</div>
+            <div id="mobileSubtituloClinica" class="mobile-topbar-subtitle">Gestão de Saúde</div>
+        </div>
         <button type="button" class="mobile-menu-toggle" aria-label="Abrir menu" onclick="alternarMenuMobile()"><span></span><span></span><span></span></button>
     </header>
     <div class="sidebar-menu">
         <div class="sidebar-brand">
-            <img id="logoClinicaDisplay" src="" alt="Logo da Clinica">
-            <div id="nomeClinicaTexto" class="sidebar-brand-title">Clinica Integrada</div>
-            <div id="subtituloClinicaTexto" class="sidebar-brand-subtitle">Gestao de Saude</div>
+            <img id="logoClinicaDisplay" src="" alt="Logo da Clínica">
+            <div id="nomeClinicaTexto" class="sidebar-brand-title">Clínica Integrada</div>
+            <div id="subtituloClinicaTexto" class="sidebar-brand-subtitle">Gestão de Saúde</div>
         </div>
         <button onclick="mostrarTela('dashboard')">Agenda</button>
         <button onclick="mostrarTela('pacientes')">Pacientes</button>
@@ -25,9 +28,9 @@
         <div id="submenuFinanceiro" class="submenu-financeiro">
             <button onclick="mostrarTela('contasReceber')">Contas a Receber</button>
             <button onclick="mostrarTela('contasPagar')">Contas a Pagar</button>
-            <button onclick="mostrarTela('relatorios')">Relatorios</button>
+            <button onclick="mostrarTela('relatorios')">Relatórios</button>
         </div>
-        <button onclick="mostrarTela('configuracoes')">Configuracoes</button>
+        <button onclick="mostrarTela('configuracoes')">Configurações</button>
     </div>
     <div class="mobile-menu-overlay" onclick="fecharMenuMobile()"></div>
 
@@ -66,14 +69,23 @@
             <div class="barra-acoes">
                 <button onclick="acionarMenuNovoPaciente()" class="btn-principal">Novo Paciente</button>
             </div>
-            <h3 class="titulo-lista-pacientes">Pacientes cadastrados</h3>
+            <div class="cabecalho-lista-pacientes">
+                <h3 class="titulo-lista-pacientes">Pacientes cadastrados</h3>
+                <div class="pesquisa-pacientes">
+                    <input type="text" id="pesquisaPacientes" placeholder="Pesquisar paciente" autocomplete="off" aria-label="Pesquisar paciente cadastrado">
+                    <button type="button" id="btnLimparPesquisaPacientes" class="btn-limpar-pesquisa" onclick="limparPesquisaPacientes()" aria-label="Limpar pesquisa" title="Limpar pesquisa" hidden>×</button>
+                </div>
+            </div>
             <div id="listaPacientes" class="grid-pacientes"></div>
         </div>
 
         <div id="novoPaciente" class="tela">
             <div class="form-container">
                 <form id="formPaciente">
-                    <h3>Informacoes do Prontuario</h3>
+                    <div class="perfil-form-cabecalho">
+                        <h3>Informações do Prontuário</h3>
+                        <button type="button" id="btnFecharPerfilPaciente" class="btn-fechar-perfil" onclick="fecharPerfilPaciente()" aria-label="Fechar perfil e voltar aos pacientes" title="Fechar perfil">×</button>
+                    </div>
                     <div class="form-row">
                         <div class="form-group">
                             <label>Nome Completo</label>
@@ -100,29 +112,29 @@
                             <input type="date" id="dataNascimento">
                         </div>
                         <div class="form-group">
-                            <label>Responsavel Legal (Se menor)</label>
+                            <label>Responsável legal (se menor)</label>
                             <input type="text" id="responsavel">
                         </div>
                     </div>
                     <div class="form-group">
-                        <label>Endereco Residencial</label>
+                        <label>Endereço residencial</label>
                         <input type="text" id="endereco">
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label>Vinculo / Status</label>
+                            <label>Vínculo / Status</label>
                             <select id="statusVinculo">
                                 <option value="Ativo">Ativo</option>
                                 <option value="Inativo">Inativo (Arquivado)</option>
                             </select>
                         </div>
                         <div class="form-group">
-                            <label>Observacoes Gerais</label>
+                            <label>Observações gerais</label>
                             <textarea id="observacoes" rows="2"></textarea>
                         </div>
                     </div>
 
-                    <h3 class="titulo-bloco-form">Plano Clinico Recorrente</h3>
+                    <h3 class="titulo-bloco-form">Plano clínico recorrente</h3>
                     <div class="form-row">
                         <div class="form-group">
                             <label>Data Inicial do Plano</label>
@@ -135,7 +147,7 @@
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label>Frequencia</label>
+                            <label>Frequência</label>
                             <select id="frequencia">
                                 <option value="Semanal">Semanal</option>
                                 <option value="Quinzenal">Quinzenal</option>
@@ -143,7 +155,7 @@
                             </select>
                         </div>
                         <div class="form-group">
-                            <label>Horario Fixo</label>
+                            <label>Horário fixo</label>
                             <input type="time" id="horario">
                         </div>
                     </div>
@@ -156,20 +168,20 @@
                             </select>
                         </div>
                         <div class="form-group">
-                            <label>Valor da Sessao (R$)</label>
+                            <label>Valor da sessão (R$)</label>
                             <input type="number" id="valor" step="0.01">
                         </div>
                         <div class="form-group">
-                            <label>Ciclo de Cobranca</label>
+                            <label>Ciclo de cobrança</label>
                             <select id="formaCobranca">
                                 <option value="Mensal">Mensal</option>
-                                <option value="Por Sessao">Por Sessao</option>
+                                <option value="Por Sessao">Por sessão</option>
                             </select>
                         </div>
                     </div>
 
                     <div class="form-acoes-paciente">
-                        <button type="button" id="btnSalvarPaciente" class="btn-principal">Salvar Prontuario</button>
+                        <button type="button" id="btnSalvarPaciente" class="btn-principal">Salvar prontuário</button>
                         <button type="button" id="btnExcluirPacienteForm" class="btn-perigo" onclick="excluirPacienteAtual()">Remover Registro</button>
                     </div>
                 </form>
@@ -178,17 +190,17 @@
 
         <div id="relatorios" class="tela">
             <div class="form-container relatorio-container">
-                <h3>Relatorios Financeiros</h3>
-                <p>Consulte contas a receber, pagamentos recebidos e previsao de faturamento por periodo e paciente.</p>
+                <h3>Relatórios financeiros</h3>
+                <p>Consulte contas a receber, pagamentos recebidos e previsão de faturamento por período e paciente.</p>
 
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Tipo de Relatorio</label>
+                        <label>Tipo de relatório</label>
                         <select id="tipoRelatorio">
                             <option value="completo" selected>Resumo Completo</option>
                             <option value="contas_receber">Contas a Receber</option>
                             <option value="recebidos">Pagamentos Recebidos</option>
-                            <option value="previsao">Previsao de Faturamento</option>
+                            <option value="previsao">Previsão de faturamento</option>
                             <option value="contas_pagar">Contas a Pagar</option>
                         </select>
                     </div>
@@ -211,11 +223,11 @@
 
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Periodo Inicial</label>
+                        <label>Período inicial</label>
                         <input type="date" id="dataInicioRelatorio">
                     </div>
                     <div class="form-group">
-                        <label>Periodo Final</label>
+                        <label>Período final</label>
                         <input type="date" id="dataFimRelatorio">
                     </div>
                     <div class="form-group relatorio-botao-grupo">
@@ -226,29 +238,29 @@
 
                 <div class="cards-indicadores cards-relatorio">
                     <div class="card-ind">
-                        <h3>Previsao no Periodo</h3>
+                        <h3>Previsão no período</h3>
                         <p id="relatorioTotalPrevisto">R$ 0,00</p>
                     </div>
                     <div class="card-ind">
-                        <h3>Recebido no Periodo</h3>
+                        <h3>Recebido no período</h3>
                         <p id="relatorioTotalRecebido">R$ 0,00</p>
                     </div>
                     <div class="card-ind">
-                        <h3>A Receber no Periodo</h3>
+                        <h3>A receber no período</h3>
                         <p id="relatorioTotalReceber">R$ 0,00</p>
                     </div>
                 </div>
 
                 <div id="resultadoRelatorio" class="resultado-relatorio">
-                    Selecione os filtros e clique em Gerar Relatorio.
+                    Selecione os filtros para visualizar o relatório.
                 </div>
             </div>
         </div>
 
         <div id="contasReceber" class="tela">
-            <div class="financeiro-cabecalho"><h3>Contas a Receber</h3><div class="filtros-contas"><input type="date" id="filtroReceberInicio" aria-label="Periodo inicial"><input type="date" id="filtroReceberFim" aria-label="Periodo final"><select id="filtroReceberStatus"><option value="aberto" selected>Em aberto</option><option value="pago">Pago</option><option value="todos">Todos</option></select><button type="button" class="btn-secundario" onclick="carregarTelaContas('receber')">Filtrar</button></div><button type="button" class="btn-principal" onclick="alternarFormularioConta('receber')">Incluir conta a receber</button></div>
+            <div class="financeiro-cabecalho"><h3>Contas a Receber</h3><div class="filtros-contas"><input type="date" id="filtroReceberInicio" aria-label="Período inicial"><input type="date" id="filtroReceberFim" aria-label="Período final"><select id="filtroReceberStatus"><option value="aberto" selected>Em aberto</option><option value="pago">Pago</option><option value="todos">Todos</option></select><button type="button" class="btn-secundario" onclick="carregarTelaContas('receber')">Filtrar</button></div><button type="button" class="btn-principal" onclick="alternarFormularioConta('receber')">Incluir conta a receber</button></div>
             <div class="cards-indicadores cards-financeiro">
-                <div class="card-ind"><h3>Previsao Mes Atual</h3><p id="receberPrevisto">R$ 0,00</p></div>
+                <div class="card-ind"><h3>Previsão mês atual</h3><p id="receberPrevisto">R$ 0,00</p></div>
                 <div class="card-ind"><h3>Pagamentos Recebidos</h3><p id="receberRecebido">R$ 0,00</p></div>
                 <div class="card-ind"><h3>R$ a Receber</h3><p id="receberAberto">R$ 0,00</p></div>
                 <div class="card-ind"><h3>Contas a Pagar</h3><p id="receberPagar">R$ 0,00</p></div>
@@ -262,11 +274,11 @@
         </div>
 
         <div id="contasPagar" class="tela">
-            <div class="financeiro-cabecalho"><h3>Contas a Pagar</h3><div class="filtros-contas"><input type="date" id="filtroPagarInicio" aria-label="Periodo inicial"><input type="date" id="filtroPagarFim" aria-label="Periodo final"><select id="filtroPagarStatus"><option value="aberto" selected>Em aberto</option><option value="pago">Pago</option><option value="todos">Todos</option></select><button type="button" class="btn-secundario" onclick="carregarTelaContas('pagar')">Filtrar</button></div><button type="button" class="btn-principal" onclick="alternarFormularioConta('pagar')">Incluir conta a pagar</button></div>
+            <div class="financeiro-cabecalho"><h3>Contas a Pagar</h3><div class="filtros-contas"><input type="date" id="filtroPagarInicio" aria-label="Período inicial"><input type="date" id="filtroPagarFim" aria-label="Período final"><select id="filtroPagarStatus"><option value="aberto" selected>Em aberto</option><option value="pago">Pago</option><option value="todos">Todos</option></select><button type="button" class="btn-secundario" onclick="carregarTelaContas('pagar')">Filtrar</button></div><button type="button" class="btn-principal" onclick="alternarFormularioConta('pagar')">Incluir conta a pagar</button></div>
             <div class="cards-indicadores cards-financeiro"><div class="card-ind"><h3>Contas a Pagar Mes Atual</h3><p id="pagarTotal">R$ 0,00</p></div><div class="card-ind card-saldo"><h3>R$ Saldo</h3><p id="pagarSaldo">R$ 0,00</p></div></div>
             <div id="formContaPagar" class="form-container formulario-conta" style="display:none;">
                 <h3>Nova conta a pagar</h3>
-                <div class="form-row"><div class="form-group"><label>Data</label><input type="date" id="contaPagarData"></div><div class="form-group"><label>Valor (R$)</label><input type="number" id="contaPagarValor" min="0" step="0.01"></div><div class="form-group"><label>Categoria</label><select id="contaPagarCategoria" onchange="alternarDescricaoContaPagar()"><option value="Sublocacao">Sublocacao</option><option value="Outro">Outro</option></select></div><div class="form-group" id="grupoDescricaoContaPagar" style="display:none;"><label>Descricao</label><input type="text" id="contaPagarDescricao" placeholder="Descreva a conta"></div><div class="form-group"><label class="checkbox-pagamento"><input type="checkbox" id="contaPagarPago"><span>Pago</span></label></div></div>
+                <div class="form-row"><div class="form-group"><label>Data</label><input type="date" id="contaPagarData"></div><div class="form-group"><label>Valor (R$)</label><input type="number" id="contaPagarValor" min="0" step="0.01"></div><div class="form-group"><label>Categoria</label><select id="contaPagarCategoria" onchange="alternarDescricaoContaPagar()"><option value="Sublocacao">Sublocação</option><option value="Outro">Outro</option></select></div><div class="form-group" id="grupoDescricaoContaPagar" style="display:none;"><label>Descrição</label><input type="text" id="contaPagarDescricao" placeholder="Descreva a conta"></div><div class="form-group"><label class="checkbox-pagamento"><input type="checkbox" id="contaPagarPago"><span>Pago</span></label></div></div>
                 <div class="acoes-formulario-conta"><button type="button" class="btn-principal" onclick="salvarContaManual('pagar')">Salvar conta a pagar</button><button type="button" class="btn-secundario" onclick="cancelarFormularioConta('pagar')">Cancelar</button></div>
             </div>
             <div id="listaContasPagar" class="resultado-relatorio"></div>
@@ -274,17 +286,17 @@
 
         <div id="configuracoes" class="tela">
             <div class="form-container">
-                <h3>Configuracoes de Identidade Visual da Clinica</h3>
-                <p>Personalize as informacoes, logotipo e comportamento visual da plataforma.</p>
+                <h3>Configurações de Identidade Visual da Clínica</h3>
+                <p>Personalize as informações, o logotipo e o comportamento visual da plataforma.</p>
 
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Titulo Principal da Clinica</label>
-                        <input type="text" id="cfgTituloClinica" placeholder="Ex: Clinica Integrada">
+                        <label>Título principal da clínica</label>
+                        <input type="text" id="cfgTituloClinica" placeholder="Ex.: Clínica Integrada">
                     </div>
                     <div class="form-group">
-                        <label>Subtitulo / Especialidade</label>
-                        <input type="text" id="cfgSubtituloClinica" placeholder="Ex: Gestao de Saude / Psicologia">
+                        <label>Subtítulo / Especialidade</label>
+                        <input type="text" id="cfgSubtituloClinica" placeholder="Ex.: Gestão de Saúde / Psicologia">
                     </div>
                 </div>
 
@@ -312,20 +324,24 @@
                         <input type="color" id="cfgCorSidebar" value="#1e293b">
                     </div>
                     <div class="form-group">
-                        <label>Cor de Destaque (Botoes)</label>
+                        <label>Cor de destaque (botões)</label>
                         <input type="color" id="cfgCorPrincipal" value="#2563eb">
+                    </div>
+                    <div class="form-group">
+                        <label>Cor da Fonte</label>
+                        <input type="color" id="cfgCorFonte" value="#334155">
                     </div>
                 </div>
 
                 <div class="form-acoes-config">
-                    <button type="button" id="btnSalvarConfiguracoes" class="btn-principal">Salvar Configuracoes</button>
+                    <button type="button" id="btnSalvarConfiguracoes" class="btn-principal">Salvar configurações</button>
                 </div>
             </div>
         </div>
     </div>
 
     <div id="sidebar-agenda-paciente">
-        <h3>Historico e Projecoes</h3>
+        <h3>Histórico e projeções</h3>
         <div id="info-plano-resumo"></div>
 
         <div class="filtro-periodo-sidebar">
@@ -346,7 +362,7 @@
 
     <div id="modalAgendamento" class="modal-overlay">
         <div class="modal-box">
-            <h3 id="modalAgendamentoTitulo">Editar Ocorrencia</h3>
+            <h3 id="modalAgendamentoTitulo">Editar ocorrência</h3>
 
             <div id="containerSelectPacienteAgendamento" class="form-group">
                 <label>Paciente</label>
@@ -373,7 +389,7 @@
                     </select>
                 </div>
                 <div class="form-group">
-                    <label>Valor Ocorrencia</label>
+                    <label>Valor da ocorrência</label>
                     <input type="number" id="valorAgendamento" step="0.01">
                     <label class="checkbox-pagamento">
                         <input type="checkbox" id="valorOcorrenciaPago">
@@ -384,15 +400,8 @@
 
             <div class="form-row modal-linha-financeira">
                 <div class="form-group">
-                    <label>Frequencia</label>
+                    <label>Frequência</label>
                     <select id="frequenciaAgendamento" data-original="Semanal"><option value="Semanal">Semanal</option><option value="Quinzenal">Quinzenal</option><option value="Mensal">Mensal</option></select>
-                </div>
-                <div class="form-group">
-                    <label>Conta a Pagar</label>
-                    <select id="contaPagarOcorrenciaCategoria" onchange="alternarDescricaoContaPagarOcorrencia()"><option value="">Nenhuma</option><option value="Sublocacao">Sublocacao</option><option value="Outro">Outro</option></select>
-                    <input type="text" id="contaPagarOcorrenciaDescricao" placeholder="Descricao" style="display:none; margin-top:8px;">
-                    <input type="number" id="contaPagarOcorrenciaValor" min="0" step="0.01" placeholder="Valor (R$)" style="display:none; margin-top:8px;">
-                    <label class="checkbox-pagamento" id="contaPagarOcorrenciaPagoBox" style="display:none;"><input type="checkbox" id="contaPagarOcorrenciaPago"><span>R$ Pago</span></label>
                 </div>
             </div>
 
@@ -407,15 +416,42 @@
             </div>
 
             <div id="boxEscopoAgenda" class="form-group box-escopo">
-                <label>Onde voce deseja aplicar essa alteracao?</label>
+                <label>Onde você deseja aplicar esta alteração?</label>
                 <select id="escopoModificacaoAgenda">
-                    <option value="somente">Apenas nesta data especifica</option>
-                    <option value="demais">Nesta data e em todas as sessoes seguintes</option>
+                    <option value="somente">Apenas nesta data específica</option>
+                    <option value="demais">Nesta data e em todas as sessões seguintes</option>
                 </select>
             </div>
 
+            <section class="conta-pagar-ocorrencia" aria-labelledby="tituloContaPagarOcorrencia">
+                <h4 id="tituloContaPagarOcorrencia">Conta a Pagar (opcional)</h4>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Categoria</label>
+                        <select id="contaPagarOcorrenciaCategoria" onchange="alternarDescricaoContaPagarOcorrencia()"><option value="">Nenhuma</option><option value="Sublocacao">Sublocação</option><option value="Outro">Outro</option></select>
+                    </div>
+                    <div class="form-group" id="grupoDescricaoContaPagarOcorrencia" style="display:none;">
+                        <label>Descrição</label>
+                        <input type="text" id="contaPagarOcorrenciaDescricao" placeholder="Descreva a conta">
+                    </div>
+                    <div class="form-group" id="grupoValorContaPagarOcorrencia" style="display:none;">
+                        <label>Valor (R$)</label>
+                        <input type="number" id="contaPagarOcorrenciaValor" min="0" step="0.01">
+                        <label class="checkbox-pagamento" id="contaPagarOcorrenciaPagoBox" style="display:none;"><input type="checkbox" id="contaPagarOcorrenciaPago"><span>R$ Pago</span></label>
+                    </div>
+                </div>
+                <div id="boxEscopoContaPagarOcorrencia" class="box-escopo-conta" style="display:none;">
+                    <label for="escopoContaPagarOcorrencia">Aplicar esta conta a pagar</label>
+                    <select id="escopoContaPagarOcorrencia">
+                        <option value="somente">Somente nesta data</option>
+                        <option value="demais">Nesta data e todas as sessões seguintes</option>
+                    </select>
+                    <small>O status do atendimento e o R$ Pago da sessão continuam exclusivos da data selecionada.</small>
+                </div>
+            </section>
+
             <div class="modal-acoes">
-                <button type="button" id="btnAbrirProntuario" class="btn-secundario">Prontuario da Sessao</button>
+                <button type="button" id="btnAbrirProntuario" class="btn-secundario">Prontuário da sessão</button>
                 <button type="button" class="btn-secundario" onclick="fecharModalAgendamento()">Cancelar</button>
                 <button type="button" id="btnPersistirAgendamento" class="btn-principal">Confirmar Ajustes</button>
             </div>
@@ -425,11 +461,11 @@
     <div id="modalProntuario" class="modal-overlay">
         <div class="modal-box modal-prontuario-box">
             <div class="prontuario-cabecalho">
-                <div><h3>Prontuario da Sessao</h3><p id="prontuarioIdentificacao"></p></div>
-                <button type="button" class="btn-fechar-modal" onclick="fecharProntuarioSessao()" aria-label="Fechar prontuario">×</button>
+                <div><h3>Prontuário da sessão</h3><p id="prontuarioIdentificacao"></p></div>
+                <button type="button" class="btn-fechar-modal" onclick="fecharProntuarioSessao()" aria-label="Fechar prontuário">×</button>
             </div>
-            <label for="textoProntuarioSessao">Registro clinico</label>
-            <textarea id="textoProntuarioSessao" rows="12" placeholder="Digite as anotacoes desta sessao..."></textarea>
+            <label for="textoProntuarioSessao">Registro clínico</label>
+            <textarea id="textoProntuarioSessao" rows="12" placeholder="Digite as anotações desta sessão..."></textarea>
             <div id="statusGoogleDrive" class="status-google-drive" data-status="desconectado">Google Drive: ainda não conectado.</div>
             <div id="linksProntuarioGoogleDrive" class="links-prontuario-drive" hidden></div>
             <div class="acoes-prontuario">
@@ -438,10 +474,10 @@
                 <input type="file" id="arquivosProntuarioSessao" multiple accept=".pdf,.doc,.docx,image/*" hidden>
             </div>
             <div id="listaArquivosProntuario" class="lista-arquivos-prontuario">Nenhum arquivo selecionado.</div>
-            <p class="aviso-prontuario">Ao salvar, o prontuario e os anexos serão enviados para a pasta privada do paciente no Google Drive. O texto não fica armazenado neste navegador.</p>
+            <p class="aviso-prontuario">Ao salvar, o prontuário e os anexos serão enviados para a pasta privada do paciente no Google Drive. O texto não fica armazenado neste navegador.</p>
             <div class="modal-acoes">
                 <button type="button" class="btn-secundario" onclick="fecharProntuarioSessao()">Cancelar</button>
-                <button type="button" class="btn-principal" onclick="salvarProntuarioSessao()">Salvar prontuario</button>
+                <button type="button" class="btn-principal" onclick="salvarProntuarioSessao()">Salvar prontuário</button>
             </div>
         </div>
     </div>
