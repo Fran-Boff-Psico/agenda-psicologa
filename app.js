@@ -11,6 +11,7 @@ if (window.supabase) {
 let idPacienteEditando = null;
 let pacientesListagemCache = [];
 let uploadLogoBase64 = "";
+let uploadImagemAberturaBase64 = "";
 const CHAVE_CONTAS_MANUAIS = 'agenda_contas_manuais_v1';
 const CHAVE_PRONTUARIOS_SESSAO = 'agenda_prontuarios_sessao_v1';
 const GOOGLE_DRIVE_CLIENT_ID = '849028585438-5ormphqm573bo36bijq1er8inoaurvkf.apps.googleusercontent.com';
@@ -20,6 +21,7 @@ let prontuarioSessaoAtual = null;
 let arquivosProntuarioSelecionados = [];
 let reconhecimentoProntuario = null;
 let ditadoProntuarioAtivo = false;
+let temporizadorTelaAbertura = null;
 let tokenGoogleDrive = '';
 let tokenGoogleDriveExpiraEm = 0;
 
@@ -260,6 +262,7 @@ window.fecharMenuMobile = fecharMenuMobile;
 
 window.addEventListener('load', () => {
     aplicarConfiguracoesVisuais();
+    iniciarTelaAbertura();
     mostrarTela('dashboard');
 });
 
@@ -301,6 +304,18 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             reader.readAsDataURL(file);
         }
+    });
+
+    document.getElementById('cfgImagemAberturaFile')?.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+            uploadImagemAberturaBase64 = evt.target.result;
+            const urlInput = document.getElementById('cfgImagemAberturaUrl');
+            if (urlInput) urlInput.value = "(Arquivo local anexado)";
+        };
+        reader.readAsDataURL(file);
     });
 });
 
@@ -2280,11 +2295,25 @@ function carregarConfiguracoesCampos() {
     if (document.getElementById('cfgCorSidebar')) document.getElementById('cfgCorSidebar').value = localStorage.getItem('cfg_cor_sidebar') || '#1e293b';
     if (document.getElementById('cfgCorPrincipal')) document.getElementById('cfgCorPrincipal').value = localStorage.getItem('cfg_cor_principal') || '#2563eb';
     if (document.getElementById('cfgCorFonte')) document.getElementById('cfgCorFonte').value = localStorage.getItem('cfg_cor_fonte') || (temaSalvo === 'escuro' ? '#cbd5e1' : '#334155');
+    if (document.getElementById('cfgCorFundoAbertura')) document.getElementById('cfgCorFundoAbertura').value = localStorage.getItem('cfg_cor_fundo_abertura') || localStorage.getItem('cfg_cor_sidebar') || '#1e293b';
 
     const urlLogoSalva = localStorage.getItem('cfg_logo_url') || '';
     if (document.getElementById('cfgLogoUrl')) {
         document.getElementById('cfgLogoUrl').value = urlLogoSalva.startsWith('data:image') ? '(Arquivo local anexado)' : urlLogoSalva;
     }
+    const imagemAberturaSalva = localStorage.getItem('cfg_imagem_abertura_url') || '';
+    if (document.getElementById('cfgImagemAberturaUrl')) {
+        document.getElementById('cfgImagemAberturaUrl').value = imagemAberturaSalva.startsWith('data:image') ? '(Arquivo local anexado)' : imagemAberturaSalva;
+    }
+}
+
+function corDeFundoEhClara(cor) {
+    const hexadecimal = String(cor || '').replace('#', '').trim();
+    if (!/^[0-9a-f]{6}$/i.test(hexadecimal)) return false;
+    const vermelho = parseInt(hexadecimal.slice(0, 2), 16);
+    const verde = parseInt(hexadecimal.slice(2, 4), 16);
+    const azul = parseInt(hexadecimal.slice(4, 6), 16);
+    return ((vermelho * 0.299) + (verde * 0.587) + (azul * 0.114)) > 165;
 }
 
 function aplicarConfiguracoesVisuais() {
@@ -2295,11 +2324,16 @@ function aplicarConfiguracoesVisuais() {
     const corSidebar = localStorage.getItem('cfg_cor_sidebar') || '#1e293b';
     const corPrincipal = localStorage.getItem('cfg_cor_principal') || '#2563eb';
     const corFonte = localStorage.getItem('cfg_cor_fonte') || (tema === 'escuro' ? '#cbd5e1' : '#334155');
+    const imagemAberturaUrl = localStorage.getItem('cfg_imagem_abertura_url') || '';
+    const corFundoAbertura = localStorage.getItem('cfg_cor_fundo_abertura') || corSidebar;
+    const fundoAberturaClaro = corDeFundoEhClara(corFundoAbertura);
 
     if (document.getElementById('nomeClinicaTexto')) document.getElementById('nomeClinicaTexto').innerText = titulo;
     if (document.getElementById('subtituloClinicaTexto')) document.getElementById('subtituloClinicaTexto').innerText = subtitulo;
     if (document.getElementById('mobileTituloClinica')) document.getElementById('mobileTituloClinica').innerText = titulo;
     if (document.getElementById('mobileSubtituloClinica')) document.getElementById('mobileSubtituloClinica').innerText = subtitulo;
+    if (document.getElementById('tituloAbertura')) document.getElementById('tituloAbertura').innerText = titulo;
+    if (document.getElementById('subtituloAbertura')) document.getElementById('subtituloAbertura').innerText = subtitulo;
 
     const imgLogo = document.getElementById('logoClinicaDisplay');
     if (imgLogo) {
@@ -2308,6 +2342,26 @@ function aplicarConfiguracoesVisuais() {
             imgLogo.style.display = 'block';
         } else {
             imgLogo.style.display = 'none';
+        }
+    }
+
+    const logoAbertura = document.getElementById('logoAbertura');
+    const simboloAbertura = document.getElementById('simboloAbertura');
+    const imagemExibidaNaAbertura = imagemAberturaUrl || logoUrl;
+    if (logoAbertura) {
+        if (imagemExibidaNaAbertura) {
+            logoAbertura.src = imagemExibidaNaAbertura;
+            logoAbertura.alt = imagemAberturaUrl ? 'Imagem da tela de abertura' : 'Logotipo da clínica';
+            logoAbertura.style.display = 'block';
+            if (simboloAbertura) simboloAbertura.style.display = 'none';
+            logoAbertura.onerror = () => {
+                logoAbertura.style.display = 'none';
+                if (simboloAbertura) simboloAbertura.style.display = 'grid';
+            };
+        } else {
+            logoAbertura.removeAttribute('src');
+            logoAbertura.style.display = 'none';
+            if (simboloAbertura) simboloAbertura.style.display = 'grid';
         }
     }
 
@@ -2321,6 +2375,30 @@ function aplicarConfiguracoesVisuais() {
     document.documentElement.style.setProperty('--primary-color', corPrincipal);
     document.documentElement.style.setProperty('--text-main', corFonte);
     document.documentElement.style.setProperty('--text-dark', corFonte);
+    document.documentElement.style.setProperty('--splash-bg', corFundoAbertura);
+    document.documentElement.style.setProperty('--splash-text', fundoAberturaClaro ? '#172033' : '#ffffff');
+    document.documentElement.style.setProperty('--splash-muted', fundoAberturaClaro ? 'rgba(23, 32, 51, 0.76)' : 'rgba(255, 255, 255, 0.88)');
+    document.documentElement.style.setProperty('--splash-card-bg', fundoAberturaClaro ? 'rgba(255, 255, 255, 0.58)' : 'rgba(255, 255, 255, 0.10)');
+    document.documentElement.style.setProperty('--splash-card-border', fundoAberturaClaro ? 'rgba(15, 23, 42, 0.22)' : 'rgba(255, 255, 255, 0.28)');
+    document.documentElement.style.setProperty('--splash-indicator-bg', fundoAberturaClaro ? 'rgba(15, 23, 42, 0.18)' : 'rgba(255, 255, 255, 0.24)');
+}
+
+function iniciarTelaAbertura() {
+    const telaAbertura = document.getElementById('telaAbertura');
+    if (!telaAbertura) return;
+
+    if (temporizadorTelaAbertura) window.clearTimeout(temporizadorTelaAbertura);
+    telaAbertura.hidden = false;
+    telaAbertura.classList.remove('tela-abertura-saindo');
+    document.body.classList.add('tela-abertura-ativa');
+    document.documentElement.classList.add('tela-abertura-ativa');
+
+    temporizadorTelaAbertura = window.setTimeout(() => {
+        telaAbertura.classList.add('tela-abertura-saindo');
+        document.body.classList.remove('tela-abertura-ativa');
+        document.documentElement.classList.remove('tela-abertura-ativa');
+        window.setTimeout(() => { telaAbertura.hidden = true; }, 450);
+    }, 3000);
 }
 
 function salvarConfiguracoes() {
@@ -2330,6 +2408,7 @@ function salvarConfiguracoes() {
     const corSidebar = document.getElementById('cfgCorSidebar')?.value || '#1e293b';
     const corPrincipal = document.getElementById('cfgCorPrincipal')?.value || '#2563eb';
     const corFonte = document.getElementById('cfgCorFonte')?.value || '#334155';
+    const corFundoAbertura = document.getElementById('cfgCorFundoAbertura')?.value || corSidebar;
 
     localStorage.setItem('cfg_titulo_clinica', titulo);
     localStorage.setItem('cfg_subtitulo_clinica', subtitulo);
@@ -2337,6 +2416,7 @@ function salvarConfiguracoes() {
     localStorage.setItem('cfg_cor_sidebar', corSidebar);
     localStorage.setItem('cfg_cor_principal', corPrincipal);
     localStorage.setItem('cfg_cor_fonte', corFonte);
+    localStorage.setItem('cfg_cor_fundo_abertura', corFundoAbertura);
 
     if (uploadLogoBase64) {
         localStorage.setItem('cfg_logo_url', uploadLogoBase64);
@@ -2345,6 +2425,15 @@ function salvarConfiguracoes() {
         const urlInput = document.getElementById('cfgLogoUrl')?.value || '';
         if (urlInput && urlInput !== '(Arquivo local anexado)') {
             localStorage.setItem('cfg_logo_url', urlInput);
+        }
+    }
+    if (uploadImagemAberturaBase64) {
+        localStorage.setItem('cfg_imagem_abertura_url', uploadImagemAberturaBase64);
+        uploadImagemAberturaBase64 = "";
+    } else {
+        const urlImagemAbertura = document.getElementById('cfgImagemAberturaUrl')?.value || '';
+        if (urlImagemAbertura && urlImagemAbertura !== '(Arquivo local anexado)') {
+            localStorage.setItem('cfg_imagem_abertura_url', urlImagemAbertura);
         }
     }
     aplicarConfiguracoesVisuais();
