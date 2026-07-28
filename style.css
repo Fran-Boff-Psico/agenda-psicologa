@@ -800,8 +800,37 @@ body.tela-abertura-ativa {
 }
 
 .cards-relatorio {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(160px, 1fr));
+    gap: 12px;
+    max-width: 1120px;
     margin-top: 15px;
     margin-bottom: 20px;
+}
+
+.cards-relatorio .card-ind {
+    min-width: 0;
+    padding: 13px 11px;
+}
+
+.cards-relatorio .card-ind h3 {
+    min-height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 6px;
+    font-size: 0.74rem;
+    line-height: 1.15;
+}
+
+.cards-relatorio .card-ind p {
+    font-size: 1.3rem;
+    line-height: 1.12;
+}
+
+.cards-relatorio .card-contas-pagar h3,
+.cards-relatorio .card-contas-pagar p {
+    color: #b91c1c;
 }
 
 .resultado-relatorio {
@@ -1263,7 +1292,7 @@ body.dark-theme .box-escopo-conta small {
     .mobile-topbar {
         display: flex;
         align-items: center;
-        justify-content: flex-end;
+        justify-content: flex-start;
         height: 68px;
         padding: 0 20px;
         background: var(--sidebar-bg);
@@ -1381,6 +1410,8 @@ body.dark-theme .box-escopo-conta small {
 
     .cards-financeiro,
     .cards-relatorio {
+        display: flex;
+        flex-direction: column;
         gap: 7px;
         margin: 12px 0 16px;
     }
