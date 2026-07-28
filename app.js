@@ -2,7 +2,10 @@ const SUPABASE_URL = 'https://sasbkclofsnropssrafn.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNhc2JrY2xvZnNucm9wc3NyYWZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExODg3NjcsImV4cCI6MjA5Njc2NDc2N30._8_tmYoRlyEhARjXZ3swW8ynCPY5aysGMFCTzgcnK5Y';
 
 const TITULO_PADRAO_CLINICA = 'Psicóloga Franciele Boff';
-const SUBTITULO_PADRAO_CLINICA = 'CRP - 07/42161';
+const SUBTITULO_PADRAO_CLINICA = 'CRP 07/42161';
+// Esta imagem acompanha o projeto e, por isso, é igual na abertura Web e mobile.
+// Uma imagem escolhida em Configurações continua tendo prioridade sobre ela.
+const IMAGEM_PADRAO_ABERTURA = 'assets/logo-abertura-padrao.jpeg';
 
 let bancoDados;
 if (window.supabase) {
@@ -269,7 +272,21 @@ function obterTituloClinicaConfigurado() {
 
 function obterSubtituloClinicaConfigurado() {
     const subtituloSalvo = String(localStorage.getItem('cfg_subtitulo_clinica') || '').trim();
-    return !subtituloSalvo || subtituloSalvo === 'Gestão de Saúde' ? SUBTITULO_PADRAO_CLINICA : subtituloSalvo;
+    // Atualiza somente versões anteriores do padrão. Subtítulos personalizados são preservados.
+    const normalizado = subtituloSalvo.replace(/\s+/g, ' ');
+    const ePadraoAntigo = [
+        'Gestão de Saúde',
+        'CRP - 07/42161',
+        'CRP-07/42161',
+        'CRP - XXX-XXX'
+    ].includes(normalizado) || /^CRP\s*[-–—]?\s*07\s*\/\s*42161$/i.test(normalizado);
+
+    if (!subtituloSalvo || ePadraoAntigo) {
+        // Grava a migração para que a versão nova também prevaleça nos próximos acessos.
+        localStorage.setItem('cfg_subtitulo_clinica', SUBTITULO_PADRAO_CLINICA);
+        return SUBTITULO_PADRAO_CLINICA;
+    }
+    return subtituloSalvo;
 }
 
 function contasNoPeriodo(tipo, inicio, fim) {
@@ -2360,34 +2377,47 @@ function criarPdfCompletoCompartilhavel(dados, logo) {
     objetos[2] = { texto: `<< /Type /Pages /Kids [${paginasIds.map(pagina => `${pagina.pagina} 0 R`).join(' ')}] /Count ${paginasIds.length} >>` };
     if (logo) objetos[idLogo] = { dicionario: `<< /Type /XObject /Subtype /Image /Width ${logo.largura} /Height ${logo.altura} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${logo.bytes.length} >>`, bytes: logo.bytes };
 
-    const larguras = [70, 190, 140, 100, 110, 152];
+    const larguras = [72, 166, 68, 110, 86, 125, 135];
     paginasIds.forEach((pagina, indicePagina) => {
         const comandos = [];
         const escrever = (fonte, tamanho, x, y, texto) => comandos.push(`BT /${fonte} ${tamanho} Tf 1 0 0 1 ${x} ${y} Tm (${paraPdf(texto)}) Tj ET`);
+        const definirCorTexto = () => comandos.push('0.09 0.13 0.20 rg');
         if (logo) {
             const larguraLogo = 170;
             const alturaLogo = Math.min(76, larguraLogo * (logo.altura / logo.largura));
             comandos.push('q', `${larguraLogo} 0 0 ${alturaLogo} 40 ${540 - alturaLogo} cm`, '/Logo Do', 'Q');
         }
+        definirCorTexto();
         escrever('F2', 17, 250, 540, 'Demonstrativo Financeiro de Atendimentos');
         escrever('F1', 9, 250, 520, `Paciente: ${dados.paciente}`);
         escrever('F1', 9, 250, 506, `Período: ${dados.inicioBR} a ${dados.fimBR}`);
         comandos.push('0.25 0.45 0.46 RG', '1.1 w', '40 486 m 802 486 l S', '0.91 0.94 0.96 rg', '40 452 762 18 re f');
         let xCabecalho = 40;
-        ['Data', 'Paciente', 'Atendimento', 'Status', 'Pagamento', 'Valor'].forEach((rotulo, indice) => {
+        definirCorTexto();
+        ['Data', 'Paciente', 'Hora', 'Modalidade', 'Status', 'Pagamento', 'Valor'].forEach((rotulo, indice) => {
             escrever('F2', 7, xCabecalho + 5, 458, rotulo);
             xCabecalho += larguras[indice];
         });
         pagina.registros.forEach((registro, indiceLinha) => {
             const y = 437 - (indiceLinha * 22);
-            const campos = [limitar(registro.data, 12), limitar(registro.paciente, 34), limitar(`${registro.hora} - ${registro.modalidade}`, 25), limitar(registro.status, 16), limitar(registro.pagamento, 18), limitar(registro.valor, 20)];
+            const campos = [
+                limitar(registro.data, 12),
+                limitar(registro.paciente, 31),
+                limitar(registro.hora, 10),
+                limitar(registro.modalidade, 18),
+                limitar(registro.status, 15),
+                limitar(registro.pagamento, 18),
+                limitar(registro.valor, 18)
+            ];
             let x = 40;
+            definirCorTexto();
             campos.forEach((campo, indiceCampo) => {
                 escrever('F1', 7.5, x + 5, y, campo);
                 x += larguras[indiceCampo];
             });
             comandos.push('0.78 0.82 0.87 RG', '0.4 w', `40 ${y - 7} m 802 ${y - 7} l S`);
         });
+        definirCorTexto();
         if (indicePagina === paginasIds.length - 1) escrever('F2', 11, 650, 54, `Total: ${formatarMoeda(dados.total)}`);
         escrever('F1', 7, 745, 24, `Página ${indicePagina + 1} de ${paginasIds.length}`);
         const bytesFluxo = codificador.encode(comandos.join('\n'));
@@ -2669,7 +2699,7 @@ function carregarConfiguracoesCampos() {
     if (document.getElementById('cfgCorSidebar')) document.getElementById('cfgCorSidebar').value = localStorage.getItem('cfg_cor_sidebar') || '#1e293b';
     if (document.getElementById('cfgCorPrincipal')) document.getElementById('cfgCorPrincipal').value = localStorage.getItem('cfg_cor_principal') || '#2563eb';
     if (document.getElementById('cfgCorFonte')) document.getElementById('cfgCorFonte').value = localStorage.getItem('cfg_cor_fonte') || (temaSalvo === 'escuro' ? '#cbd5e1' : '#334155');
-    if (document.getElementById('cfgCorFundoAbertura')) document.getElementById('cfgCorFundoAbertura').value = localStorage.getItem('cfg_cor_fundo_abertura') || localStorage.getItem('cfg_cor_sidebar') || '#1e293b';
+    if (document.getElementById('cfgCorFundoAbertura')) document.getElementById('cfgCorFundoAbertura').value = localStorage.getItem('cfg_cor_fundo_abertura') || '#000000';
 
     const urlLogoSalva = localStorage.getItem('cfg_logo_url') || '';
     if (document.getElementById('cfgLogoUrl')) {
@@ -2699,7 +2729,7 @@ function aplicarConfiguracoesVisuais() {
     const corPrincipal = localStorage.getItem('cfg_cor_principal') || '#2563eb';
     const corFonte = localStorage.getItem('cfg_cor_fonte') || (tema === 'escuro' ? '#cbd5e1' : '#334155');
     const imagemAberturaUrl = localStorage.getItem('cfg_imagem_abertura_url') || '';
-    const corFundoAbertura = localStorage.getItem('cfg_cor_fundo_abertura') || corSidebar;
+    const corFundoAbertura = localStorage.getItem('cfg_cor_fundo_abertura') || '#000000';
     const fundoAberturaClaro = corDeFundoEhClara(corFundoAbertura);
 
     if (document.getElementById('nomeClinicaTexto')) document.getElementById('nomeClinicaTexto').innerText = titulo;
@@ -2719,18 +2749,21 @@ function aplicarConfiguracoesVisuais() {
         }
     }
 
+    const telaAbertura = document.getElementById('telaAbertura');
     const logoAbertura = document.getElementById('logoAbertura');
     const simboloAbertura = document.getElementById('simboloAbertura');
-    const imagemExibidaNaAbertura = imagemAberturaUrl || logoUrl;
+    const imagemExibidaNaAbertura = imagemAberturaUrl || IMAGEM_PADRAO_ABERTURA;
+    if (telaAbertura) telaAbertura.classList.toggle('tela-abertura-com-imagem', Boolean(imagemExibidaNaAbertura));
     if (logoAbertura) {
         if (imagemExibidaNaAbertura) {
             logoAbertura.src = imagemExibidaNaAbertura;
-            logoAbertura.alt = imagemAberturaUrl ? 'Imagem da tela de abertura' : 'Logotipo da clínica';
+            logoAbertura.alt = imagemAberturaUrl ? 'Imagem da tela de abertura' : 'Imagem padrão de abertura da clínica';
             logoAbertura.style.display = 'block';
             if (simboloAbertura) simboloAbertura.style.display = 'none';
             logoAbertura.onerror = () => {
                 logoAbertura.style.display = 'none';
                 if (simboloAbertura) simboloAbertura.style.display = 'grid';
+                if (telaAbertura) telaAbertura.classList.remove('tela-abertura-com-imagem');
             };
         } else {
             logoAbertura.removeAttribute('src');
@@ -2782,7 +2815,7 @@ function salvarConfiguracoes() {
     const corSidebar = document.getElementById('cfgCorSidebar')?.value || '#1e293b';
     const corPrincipal = document.getElementById('cfgCorPrincipal')?.value || '#2563eb';
     const corFonte = document.getElementById('cfgCorFonte')?.value || '#334155';
-    const corFundoAbertura = document.getElementById('cfgCorFundoAbertura')?.value || corSidebar;
+    const corFundoAbertura = document.getElementById('cfgCorFundoAbertura')?.value || '#000000';
 
     localStorage.setItem('cfg_titulo_clinica', titulo);
     localStorage.setItem('cfg_subtitulo_clinica', subtitulo);
