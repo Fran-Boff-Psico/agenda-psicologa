@@ -16,6 +16,7 @@ let pacientesListagemCache = [];
 let uploadLogoBase64 = "";
 let uploadImagemAberturaBase64 = "";
 const CHAVE_CONTAS_MANUAIS = 'agenda_contas_manuais_v1';
+const CHAVE_MIGRACAO_FINANCEIRA = 'agenda_financeiro_migrado_supabase_v1';
 const CHAVE_PRONTUARIOS_SESSAO = 'agenda_prontuarios_sessao_v1';
 const GOOGLE_DRIVE_CLIENT_ID = '849028585438-5ormphqm573bo36bijq1er8inoaurvkf.apps.googleusercontent.com';
 const GOOGLE_DRIVE_PASTA_RAIZ_ID = '1y8K_mowUqJDOuzrsnxs0zPIRE_U7T4ku';
@@ -27,6 +28,17 @@ let ditadoProntuarioAtivo = false;
 let temporizadorTelaAbertura = null;
 let tokenGoogleDrive = '';
 let tokenGoogleDriveExpiraEm = 0;
+let telaAtual = 'dashboard';
+let historicoMobilePreparado = false;
+let contasManuaisCache = null;
+let pagamentosContasCache = {};
+let pagamentosAtendimentosCache = {};
+let sincronizacaoFinanceiraEmAndamento = null;
+let ultimaSincronizacaoFinanceira = 0;
+let verificacaoFinanceiraIniciada = false;
+const canalFinanceiro = typeof BroadcastChannel !== 'undefined'
+    ? new BroadcastChannel('agenda-psicologa-financeiro')
+    : null;
 
 const MAPA_CLASSES_STATUS = {
     'Realizado': 'status-realizado',
@@ -39,12 +51,203 @@ function chavePagamentoOcorrencia(pacienteId, dataISO) {
     return `pagamento_ocorrencia_${pacienteId}_${dataISO}`;
 }
 
-function obterContasManuais() {
+function chavePagamentoConta(contaId, dataISO) {
+    return `${contaId}_${dataISO}`;
+}
+
+function obterContasManuaisLocais() {
     try { return JSON.parse(localStorage.getItem(CHAVE_CONTAS_MANUAIS) || '[]'); } catch { return []; }
 }
 
-function salvarContasManuais(contas) {
+function salvarContasManuaisLocais(contas) {
     localStorage.setItem(CHAVE_CONTAS_MANUAIS, JSON.stringify(contas));
+}
+
+function obterContasManuais() {
+    return contasManuaisCache || obterContasManuaisLocais();
+}
+
+function normalizarPacienteIdParaBanco(pacienteId) {
+    const valor = Number(pacienteId);
+    return Number.isInteger(valor) && valor > 0 ? valor : null;
+}
+
+function converterContaParaBanco(conta) {
+    return {
+        id: String(conta.id),
+        tipo: conta.tipo,
+        origem: conta.origem || null,
+        paciente_id: normalizarPacienteIdParaBanco(conta.pacienteId),
+        paciente_nome: conta.pacienteNome || null,
+        data: conta.data,
+        valor: Number(conta.valor || 0),
+        categoria: conta.categoria || null,
+        descricao: conta.descricao || null,
+        pago: Boolean(conta.pago),
+        recorrente: Boolean(conta.recorrente),
+        ativo: conta.ativo !== false,
+        frequencia: conta.frequencia || null,
+        dia_semana: conta.diaSemana || null,
+        atualizado_em: new Date().toISOString()
+    };
+}
+
+function converterContaDoBanco(conta) {
+    return {
+        id: String(conta.id),
+        tipo: conta.tipo,
+        origem: conta.origem || '',
+        pacienteId: conta.paciente_id == null ? '' : String(conta.paciente_id),
+        pacienteNome: conta.paciente_nome || '',
+        data: conta.data,
+        valor: Number(conta.valor || 0),
+        categoria: conta.categoria || '',
+        descricao: conta.descricao || '',
+        pago: Boolean(conta.pago),
+        recorrente: Boolean(conta.recorrente),
+        ativo: conta.ativo !== false,
+        frequencia: conta.frequencia || '',
+        diaSemana: conta.dia_semana || ''
+    };
+}
+
+function pagamentosLocaisPorPrefixo(prefixo, padrao) {
+    const pagamentos = [];
+    for (let indice = 0; indice < localStorage.length; indice++) {
+        const chave = localStorage.key(indice);
+        if (!chave?.startsWith(prefixo)) continue;
+        const correspondencia = chave.match(padrao);
+        if (!correspondencia) continue;
+        pagamentos.push({ referencia: correspondencia[1], data: correspondencia[2], pago: localStorage.getItem(chave) === 'true' });
+    }
+    return pagamentos;
+}
+
+function obterPagamentoConta(contaId, dataISO) {
+    const chave = chavePagamentoConta(contaId, dataISO);
+    if (Object.prototype.hasOwnProperty.call(pagamentosContasCache, chave)) return pagamentosContasCache[chave];
+    return localStorage.getItem(`pagamento_conta_${contaId}_${dataISO}`) === 'true';
+}
+
+function obterPagamentoAtendimento(pacienteId, dataISO) {
+    const chave = chavePagamentoOcorrencia(pacienteId, dataISO);
+    if (Object.prototype.hasOwnProperty.call(pagamentosAtendimentosCache, chave)) return pagamentosAtendimentosCache[chave];
+    return localStorage.getItem(chave) === 'true';
+}
+
+async function salvarPagamentoContaNoBanco(contaId, dataISO, pago) {
+    const chave = chavePagamentoConta(contaId, dataISO);
+    pagamentosContasCache[chave] = Boolean(pago);
+    localStorage.setItem(`pagamento_conta_${contaId}_${dataISO}`, pago ? 'true' : 'false');
+    if (!bancoDados) return;
+    const { error } = await bancoDados.from('pagamentos_contas').upsert({
+        conta_id: String(contaId), data: dataISO, pago: Boolean(pago), atualizado_em: new Date().toISOString()
+    }, { onConflict: 'conta_id,data' });
+    if (error) throw error;
+}
+
+async function salvarPagamentoAtendimentoNoBanco(pacienteId, dataISO, pago) {
+    const chave = chavePagamentoOcorrencia(pacienteId, dataISO);
+    pagamentosAtendimentosCache[chave] = Boolean(pago);
+    localStorage.setItem(chave, pago ? 'true' : 'false');
+    if (!bancoDados) return;
+    const { error } = await bancoDados.from('pagamentos_atendimentos').upsert({
+        paciente_id: normalizarPacienteIdParaBanco(pacienteId), data: dataISO, pago: Boolean(pago), atualizado_em: new Date().toISOString()
+    }, { onConflict: 'paciente_id,data' });
+    if (error) throw error;
+}
+
+async function removerPagamentoAtendimentoNoBanco(pacienteId, dataISO) {
+    delete pagamentosAtendimentosCache[chavePagamentoOcorrencia(pacienteId, dataISO)];
+    localStorage.removeItem(chavePagamentoOcorrencia(pacienteId, dataISO));
+    if (!bancoDados) return;
+    const { error } = await bancoDados.from('pagamentos_atendimentos')
+        .delete().eq('paciente_id', normalizarPacienteIdParaBanco(pacienteId)).eq('data', dataISO);
+    if (error) throw error;
+}
+
+async function sincronizarFinanceiroComBanco(forcar = false) {
+    if (!bancoDados) return;
+    if (sincronizacaoFinanceiraEmAndamento) return sincronizacaoFinanceiraEmAndamento;
+    if (!forcar && ultimaSincronizacaoFinanceira && Date.now() - ultimaSincronizacaoFinanceira < 4000) return;
+
+    sincronizacaoFinanceiraEmAndamento = (async () => {
+        const [contasResposta, pagamentosContasResposta, pagamentosAtendimentosResposta] = await Promise.all([
+            bancoDados.from('contas_financeiras').select('*').order('data'),
+            bancoDados.from('pagamentos_contas').select('conta_id, data, pago'),
+            bancoDados.from('pagamentos_atendimentos').select('paciente_id, data, pago')
+        ]);
+        if (contasResposta.error) throw contasResposta.error;
+        if (pagamentosContasResposta.error) throw pagamentosContasResposta.error;
+        if (pagamentosAtendimentosResposta.error) throw pagamentosAtendimentosResposta.error;
+
+        const deveMigrarDadosLocais = localStorage.getItem(CHAVE_MIGRACAO_FINANCEIRA) !== 'true';
+        let contasRemotas = contasResposta.data || [];
+        const idsRemotos = new Set(contasRemotas.map(conta => String(conta.id)));
+        const contasLegadas = deveMigrarDadosLocais
+            ? obterContasManuaisLocais().filter(conta => conta?.id && !idsRemotos.has(String(conta.id)))
+            : [];
+        if (contasLegadas.length) {
+            const { data, error } = await bancoDados.from('contas_financeiras')
+                .upsert(contasLegadas.map(converterContaParaBanco), { onConflict: 'id' }).select();
+            if (error) throw error;
+            contasRemotas = contasRemotas.concat(data || []);
+        }
+
+        const pagamentosContasRemotos = pagamentosContasResposta.data || [];
+        const pagamentosAtendimentosRemotos = pagamentosAtendimentosResposta.data || [];
+        const chavesContasRemotas = new Set(pagamentosContasRemotos.map(item => chavePagamentoConta(item.conta_id, item.data)));
+        const chavesAtendimentosRemotas = new Set(pagamentosAtendimentosRemotos.map(item => chavePagamentoOcorrencia(item.paciente_id, item.data)));
+        const pagamentosContasLegados = (deveMigrarDadosLocais ? pagamentosLocaisPorPrefixo('pagamento_conta_', /^pagamento_conta_(.+)_(\d{4}-\d{2}-\d{2})$/) : [])
+            .filter(item => !chavesContasRemotas.has(chavePagamentoConta(item.referencia, item.data)));
+        const pagamentosAtendimentosLegados = (deveMigrarDadosLocais ? pagamentosLocaisPorPrefixo('pagamento_ocorrencia_', /^pagamento_ocorrencia_(.+)_(\d{4}-\d{2}-\d{2})$/) : [])
+            .filter(item => !chavesAtendimentosRemotas.has(chavePagamentoOcorrencia(item.referencia, item.data)));
+
+        if (pagamentosContasLegados.length) {
+            const { data, error } = await bancoDados.from('pagamentos_contas').upsert(
+                pagamentosContasLegados.map(item => ({ conta_id: item.referencia, data: item.data, pago: item.pago })),
+                { onConflict: 'conta_id,data' }
+            ).select('conta_id, data, pago');
+            if (error) throw error;
+            pagamentosContasRemotos.push(...(data || []));
+        }
+        if (pagamentosAtendimentosLegados.length) {
+            const { data, error } = await bancoDados.from('pagamentos_atendimentos').upsert(
+                pagamentosAtendimentosLegados.map(item => ({ paciente_id: normalizarPacienteIdParaBanco(item.referencia), data: item.data, pago: item.pago })),
+                { onConflict: 'paciente_id,data' }
+            ).select('paciente_id, data, pago');
+            if (error) throw error;
+            pagamentosAtendimentosRemotos.push(...(data || []));
+        }
+
+        contasManuaisCache = contasRemotas.map(converterContaDoBanco);
+        salvarContasManuaisLocais(contasManuaisCache);
+        pagamentosContasCache = {};
+        pagamentosAtendimentosCache = {};
+        pagamentosContasRemotos.forEach(item => pagamentosContasCache[chavePagamentoConta(item.conta_id, item.data)] = Boolean(item.pago));
+        pagamentosAtendimentosRemotos.forEach(item => pagamentosAtendimentosCache[chavePagamentoOcorrencia(item.paciente_id, item.data)] = Boolean(item.pago));
+        localStorage.setItem(CHAVE_MIGRACAO_FINANCEIRA, 'true');
+        ultimaSincronizacaoFinanceira = Date.now();
+    })().catch(erro => {
+        console.error('Não foi possível sincronizar os dados financeiros.', erro);
+    }).finally(() => {
+        sincronizacaoFinanceiraEmAndamento = null;
+    });
+    return sincronizacaoFinanceiraEmAndamento;
+}
+
+async function salvarContasManuais(contas) {
+    contasManuaisCache = contas;
+    salvarContasManuaisLocais(contas);
+    emitirAlteracaoFinanceira();
+    if (!bancoDados) return;
+    const { error } = await bancoDados.from('contas_financeiras')
+        .upsert(contas.map(converterContaParaBanco), { onConflict: 'id' });
+    if (error) {
+        console.error('Não foi possível salvar a conta na nuvem.', error);
+        throw error;
+    }
+    ultimaSincronizacaoFinanceira = Date.now();
 }
 
 function chaveProntuarioSessao(pacienteId, dataISO) {
@@ -102,7 +305,7 @@ function contasNoPeriodo(tipo, inicio, fim) {
                 data: dataISO,
                 recorrente: true,
                 chavePagamento,
-                pago: localStorage.getItem(chavePagamento) === 'true'
+                pago: obterPagamentoConta(regra.id, dataISO)
             });
         }
     });
@@ -116,13 +319,14 @@ function totalizarContas(contas, somenteEmAberto = false) {
 function carregarStatusPagamentoOcorrencia(pacienteId, dataISO) {
     const campoPago = document.getElementById('valorOcorrenciaPago');
     if (!campoPago) return;
-    campoPago.checked = pacienteId && dataISO ? localStorage.getItem(chavePagamentoOcorrencia(pacienteId, dataISO)) === 'true' : false;
+    campoPago.checked = pacienteId && dataISO ? obterPagamentoAtendimento(pacienteId, dataISO) : false;
 }
 
-function salvarStatusPagamentoOcorrencia(pacienteId, dataISO) {
+async function salvarStatusPagamentoOcorrencia(pacienteId, dataISO) {
     const campoPago = document.getElementById('valorOcorrenciaPago');
     if (!campoPago || !pacienteId || !dataISO) return;
-    localStorage.setItem(chavePagamentoOcorrencia(pacienteId, dataISO), campoPago.checked ? 'true' : 'false');
+    await salvarPagamentoAtendimentoNoBanco(pacienteId, dataISO, campoPago.checked);
+    emitirAlteracaoFinanceira();
 }
 
 function formatarDataISO(data) {
@@ -192,11 +396,37 @@ function acionarMenuNovoPaciente() {
 }
 window.acionarMenuNovoPaciente = acionarMenuNovoPaciente;
 
-function mostrarTela(nomeTela) {
+function estaEmModoMobile() {
+    return Boolean(window.matchMedia?.('(max-width: 760px)').matches);
+}
+
+function prepararHistoricoMobile() {
+    if (!estaEmModoMobile() || historicoMobilePreparado) return;
+
+    if (!history.state?.agendaPsicologa) {
+        history.replaceState({ agendaPsicologa: true, tela: 'dashboard', raiz: true }, '', window.location.href);
+        // Mantém uma entrada interna antes da página para que o botão Voltar não feche o site.
+        history.pushState({ agendaPsicologa: true, tela: 'dashboard', protecao: true }, '', window.location.href);
+    }
+    historicoMobilePreparado = true;
+}
+
+function registrarTelaNoHistorico(nomeTela) {
+    if (!estaEmModoMobile()) return;
+    prepararHistoricoMobile();
+    if (history.state?.agendaPsicologa && history.state.tela === nomeTela) return;
+    history.pushState({ agendaPsicologa: true, tela: nomeTela }, '', window.location.href);
+}
+
+function mostrarTela(nomeTela, opcoes = {}) {
+    const telaAlvo = document.getElementById(nomeTela);
+    if (!telaAlvo) return;
+
     fecharMenuMobile();
     document.querySelectorAll('.tela').forEach(tela => tela.style.display = 'none');
-    const telaAlvo = document.getElementById(nomeTela);
-    if (telaAlvo) telaAlvo.style.display = 'block';
+    telaAlvo.style.display = 'block';
+    telaAtual = nomeTela;
+    if (opcoes.registrarHistorico !== false) registrarTelaNoHistorico(nomeTela);
 
     const sidePerfil = document.getElementById('sidebar-agenda-paciente');
     if (sidePerfil) sidePerfil.style.display = 'none';
@@ -257,6 +487,35 @@ function mostrarTela(nomeTela) {
 }
 window.mostrarTela = mostrarTela;
 
+function atualizarTelasFinanceirasAbertas() {
+    if (telaAtual === 'dashboard') {
+        atualizarIndicadoresFinanceirosDashboard();
+    } else if (telaAtual === 'relatorios') {
+        gerarRelatorioFinanceiro();
+    } else if (telaAtual === 'contasReceber') {
+        carregarTelaContas('receber');
+    } else if (telaAtual === 'contasPagar') {
+        carregarTelaContas('pagar');
+    } else if (telaAtual === 'novoPaciente' && idPacienteEditando) {
+        renderizarSidebarCalendarioPaciente(idPacienteEditando);
+    }
+}
+
+function emitirAlteracaoFinanceira() {
+    try { canalFinanceiro?.postMessage({ tipo: 'financeiro-atualizado', em: Date.now() }); } catch (erro) { console.warn(erro); }
+    atualizarTelasFinanceirasAbertas();
+}
+
+function iniciarVerificacaoFinanceiraPeriodica() {
+    if (verificacaoFinanceiraIniciada) return;
+    verificacaoFinanceiraIniciada = true;
+    window.setInterval(async () => {
+        if (document.hidden) return;
+        await sincronizarFinanceiroComBanco(true);
+        atualizarTelasFinanceirasAbertas();
+    }, 12000);
+}
+
 function fecharPerfilPaciente() {
     idPacienteEditando = null;
     mostrarTela('pacientes');
@@ -274,9 +533,38 @@ function fecharMenuMobile() {
 window.fecharMenuMobile = fecharMenuMobile;
 
 window.addEventListener('load', () => {
+    prepararHistoricoMobile();
     aplicarConfiguracoesVisuais();
     iniciarTelaAbertura();
-    mostrarTela('dashboard');
+    const telaDoHistorico = history.state?.agendaPsicologa ? history.state.tela : 'dashboard';
+    mostrarTela(document.getElementById(telaDoHistorico) ? telaDoHistorico : 'dashboard', { registrarHistorico: false });
+    sincronizarFinanceiroComBanco(true).then(() => atualizarTelasFinanceirasAbertas());
+    iniciarVerificacaoFinanceiraPeriodica();
+});
+
+window.addEventListener('popstate', evento => {
+    if (!estaEmModoMobile()) return;
+    const estado = evento.state;
+    if (!estado?.agendaPsicologa) return;
+
+    mostrarTela(document.getElementById(estado.tela) ? estado.tela : 'dashboard', { registrarHistorico: false });
+    if (estado.raiz) {
+        history.pushState({ agendaPsicologa: true, tela: 'dashboard', protecao: true }, '', window.location.href);
+    }
+});
+
+window.addEventListener('storage', evento => {
+    if (evento.key === CHAVE_CONTAS_MANUAIS || evento.key?.startsWith('pagamento_')) {
+        atualizarTelasFinanceirasAbertas();
+    }
+});
+
+canalFinanceiro?.addEventListener('message', () => atualizarTelasFinanceirasAbertas());
+
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+        sincronizarFinanceiroComBanco(true).then(() => atualizarTelasFinanceirasAbertas());
+    }
 });
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -523,6 +811,10 @@ window.abrirEditorDiretoAgenda = function(pacienteId, dataISO, hora, modalidade,
     document.getElementById('valorAgendamento').value = valor;
     document.getElementById('statusAgendamento').value = status;
     carregarStatusPagamentoOcorrencia(pacienteId, dataISO);
+    sincronizarFinanceiroComBanco().then(() => {
+        carregarStatusPagamentoOcorrencia(pacienteId, dataISO);
+        carregarContaPagarOcorrencia(pacienteId, dataISO);
+    });
     document.getElementById('btnAbrirProntuario').onclick = () => abrirProntuarioSessao(pacienteId, dataISO, hora);
     const campoFrequencia = document.getElementById('frequenciaAgendamento');
     if (campoFrequencia) {
@@ -549,10 +841,10 @@ window.abrirEditorDiretoAgenda = function(pacienteId, dataISO, hora, modalidade,
         if (!validarContaPagarOcorrencia()) return;
 
         await executarSalvamentoPorEscopo(pacienteId, dataISO, novaData, novaHora, novaMod, novoVal, novoStat, escopoAtendimento, novaFreq);
-        salvarStatusPagamentoOcorrencia(pacienteId, novaData);
+        await salvarStatusPagamentoOcorrencia(pacienteId, novaData);
         await salvarContaPagarOcorrencia(pacienteId, dataISO, novaData, escopoContaPagar, novaFreq);
         if (novaData !== dataISO) {
-            localStorage.removeItem(chavePagamentoOcorrencia(pacienteId, dataISO));
+            await removerPagamentoAtendimentoNoBanco(pacienteId, dataISO);
         }
         fecharModalAgendamento();
         carregarAgendaSemanal();
@@ -1357,7 +1649,7 @@ async function renderizarSidebarCalendarioPaciente(pacienteId, manterPeriodoAtua
                 const exibMod = excecao && excecao.modalidade ? excecao.modalidade : modalidade;
                 const exibStatus = excecao ? excecao.status : 'Agendado';
                 const classeStatusSide = MAPA_CLASSES_STATUS[exibStatus] || 'status-agendado';
-                const pago = localStorage.getItem(chavePagamentoOcorrencia(pacienteId, dataISO)) === 'true';
+                const pago = obterPagamentoAtendimento(pacienteId, dataISO);
                 const contasDaData = contasPagarPeriodo.filter(conta => conta.data === dataISO);
                 const textoContasPagar = contasDaData.map(conta => {
                     const categoria = conta.categoria === 'Outro' || conta.categoria === 'Manual'
@@ -1448,7 +1740,7 @@ function montarOcorrenciasFinanceiras(base, dataInicio, dataFim, pacienteFiltro 
 
             const planoOrigem = base.planos.find(pl => pl.paciente_id === ag.paciente_id) || {};
             const valor = Number(ag.valor ?? planoOrigem.valor ?? 0);
-            const pago = localStorage.getItem(chavePagamentoOcorrencia(ag.paciente_id, dataISO)) === 'true';
+            const pago = obterPagamentoAtendimento(ag.paciente_id, dataISO);
 
             ocorrencias.push({
                 pacienteId: ag.paciente_id,
@@ -1470,7 +1762,7 @@ function montarOcorrenciasFinanceiras(base, dataInicio, dataFim, pacienteFiltro 
             if (possuiExcecao) return;
             if (!checarDataCorrespondeAoPlano(new Date(dataFoco), plano.data_inicio, plano.dia_semana, plano.frequencia)) return;
 
-            const pago = localStorage.getItem(chavePagamentoOcorrencia(plano.paciente_id, dataISO)) === 'true';
+            const pago = obterPagamentoAtendimento(plano.paciente_id, dataISO);
             ocorrencias.push({
                 pacienteId: plano.paciente_id,
                 pacienteNome: mapaPacientes[plano.paciente_id],
@@ -1547,6 +1839,7 @@ function atualizarCardsFinanceiros(totais, pagar, ids = {}) {
 
 async function atualizarIndicadoresFinanceirosDashboard() {
     try {
+        await sincronizarFinanceiroComBanco();
         const base = await buscarBaseFinanceira();
         if (!base) return;
         const periodo = obterPeriodoMesAtual();
@@ -1570,6 +1863,7 @@ async function carregarTelaRelatorios() {
     if (!fimInput.value) fimInput.value = formatarDataISO(periodo.fim);
 
     try {
+        await sincronizarFinanceiroComBanco();
         const { data: pacientes } = await bancoDados.from('pacientes').select('id, nome, status').order('nome');
         const selecionado = selectPaciente.value;
         let htmlOptions = '<option value="">Todos os pacientes</option><option value="reg_manual">Reg. Manual</option>';
@@ -1604,6 +1898,7 @@ async function gerarRelatorioFinanceiro() {
     resultado.innerHTML = 'Gerando relatório...';
 
     try {
+        await sincronizarFinanceiroComBanco();
         const inicio = dataInicio <= dataFim ? dataInicio : dataFim;
         const fim = dataInicio <= dataFim ? dataFim : dataInicio;
         inicioInput.value = formatarDataISO(inicio);
@@ -1620,10 +1915,15 @@ async function gerarRelatorioFinanceiro() {
         const linhasPagarRegManual = linhasPagar.filter(linha => linha.modalidade === 'Reg. Manual');
         const ocorrencias = montarOcorrenciasFinanceiras(base, inicio, fim, pacienteFiltro).concat(linhasReceberManual);
         const totais = calcularTotaisFinanceiros(filtroRegistrosManuais ? linhasReceberManual : ocorrencias);
+        const contasPagarDoIndicador = filtroRegistrosManuais
+            ? contasPagar.filter(conta => ['Outro', 'Manual', 'Reg. Manual'].includes(conta.categoria || ''))
+            : contasPagar;
+        const totalContasPagar = totalizarContas(contasPagarDoIndicador, true);
 
         if (document.getElementById('relatorioTotalPrevisto')) document.getElementById('relatorioTotalPrevisto').innerText = formatarMoeda(totais.previsto);
         if (document.getElementById('relatorioTotalRecebido')) document.getElementById('relatorioTotalRecebido').innerText = formatarMoeda(totais.recebido);
         if (document.getElementById('relatorioTotalReceber')) document.getElementById('relatorioTotalReceber').innerText = formatarMoeda(totais.aReceber);
+        if (document.getElementById('relatorioTotalPagar')) document.getElementById('relatorioTotalPagar').innerText = formatarMoeda(totalContasPagar);
 
         let linhas = filtroRegistrosManuais ? linhasReceberManual.concat(linhasPagarRegManual) : ocorrencias;
         if (tipoInput.value === 'contas_pagar') {
@@ -1724,7 +2024,7 @@ function alternarDescricaoContaPagar() {
 }
 window.alternarDescricaoContaPagar = alternarDescricaoContaPagar;
 
-function salvarContaManual(tipo) {
+async function salvarContaManual(tipo) {
     const sufixo = tipo === 'pagar' ? 'Pagar' : 'Receber';
     const data = document.getElementById(`conta${sufixo}Data`)?.value;
     const valor = Number(document.getElementById(`conta${sufixo}Valor`)?.value || 0);
@@ -1739,7 +2039,12 @@ function salvarContaManual(tipo) {
     const contas = obterContasManuais();
     const pago = Boolean(document.getElementById(tipo === 'pagar' ? 'contaPagarPago' : 'contaReceberPago')?.checked);
     contas.push({ id: `${Date.now()}_${Math.random().toString(16).slice(2)}`, tipo, data, valor, categoria, descricao: descricao.trim(), pago });
-    salvarContasManuais(contas);
+    try {
+        await salvarContasManuais(contas);
+    } catch (erro) {
+        alert('A conta foi mantida neste dispositivo, mas não foi possível enviá-la para a nuvem. Tente novamente.');
+        return;
+    }
     document.getElementById(`conta${sufixo}Valor`).value = '';
     if (tipo === 'pagar') document.getElementById('contaPagarDescricao').value = '';
     else document.getElementById('contaReceberDescricao').value = '';
@@ -1751,16 +2056,41 @@ function salvarContaManual(tipo) {
 }
 window.salvarContaManual = salvarContaManual;
 
-function excluirContaManual(id, tipo) {
-    salvarContasManuais(obterContasManuais().filter(conta => conta.id !== id));
+async function excluirContaManual(id, tipo) {
+    const contasAnteriores = obterContasManuais();
+    const contasAtualizadas = contasAnteriores.filter(conta => conta.id !== id);
+    contasManuaisCache = contasAtualizadas;
+    salvarContasManuaisLocais(contasAtualizadas);
+    emitirAlteracaoFinanceira();
+    try {
+        if (bancoDados) {
+            const { error } = await bancoDados.from('contas_financeiras').delete().eq('id', String(id));
+            if (error) throw error;
+        }
+    } catch (erro) {
+        contasManuaisCache = contasAnteriores;
+        salvarContasManuaisLocais(contasAnteriores);
+        emitirAlteracaoFinanceira();
+        alert('Não foi possível excluir a conta na nuvem. Tente novamente.');
+        return;
+    }
     carregarTelaContas(tipo);
     atualizarIndicadoresFinanceirosDashboard();
 }
 window.excluirContaManual = excluirContaManual;
 
-function alternarContaPaga(id, tipo, paga, chavePagamento = '') {
+async function alternarContaPaga(id, tipo, paga, chavePagamento = '') {
     if (chavePagamento) {
-        localStorage.setItem(chavePagamento, paga ? 'true' : 'false');
+        const dataISO = chavePagamento.match(/(\d{4}-\d{2}-\d{2})$/)?.[1];
+        try {
+            if (!dataISO) throw new Error('Data de pagamento inválida.');
+            await salvarPagamentoContaNoBanco(id, dataISO, paga);
+        } catch (erro) {
+            console.error(erro);
+            alert('Não foi possível atualizar o pagamento na nuvem. Tente novamente.');
+            return;
+        }
+        emitirAlteracaoFinanceira();
         carregarTelaContas(tipo);
         atualizarIndicadoresFinanceirosDashboard();
         return;
@@ -1769,7 +2099,12 @@ function alternarContaPaga(id, tipo, paga, chavePagamento = '') {
     const conta = contas.find(item => item.id === id && item.tipo === tipo);
     if (!conta) return;
     conta.pago = paga;
-    salvarContasManuais(contas);
+    try {
+        await salvarContasManuais(contas);
+    } catch (erro) {
+        alert('Não foi possível atualizar o pagamento na nuvem. Tente novamente.');
+        return;
+    }
     carregarTelaContas(tipo);
     atualizarIndicadoresFinanceirosDashboard();
 }
@@ -1792,6 +2127,7 @@ function filtroStatusContas(tipo) {
 }
 
 async function carregarTelaContas(tipo) {
+    await sincronizarFinanceiroComBanco();
     const periodo = obterPeriodoFiltrosContas(tipo);
     const contasTipo = contasNoPeriodo(tipo, periodo.inicio, periodo.fim);
     const lista = document.getElementById(tipo === 'pagar' ? 'listaContasPagar' : 'listaContasReceber');
@@ -1885,8 +2221,13 @@ async function salvarContaPagarOcorrencia(pacienteId, dataOriginal, novaData, es
     const diasTexto = ['Domingo', 'Segunda', 'Terca', 'Quarta', 'Quinta', 'Sexta', 'Sabado'];
     const conta = { id: indice >= 0 ? contas[indice].id : `${Date.now()}_${Math.random().toString(16).slice(2)}`, tipo: 'pagar', origem, pacienteId, pacienteNome, data: novaData, valor, categoria, descricao: categoria === 'Outro' ? descricaoOutro.trim() : categoria, pago: recorrente ? false : pago, recorrente, ativo: Boolean(categoria), frequencia, diaSemana: diasTexto[dataObj.getDay()] };
     if (indice >= 0) contas[indice] = conta; else contas.push(conta);
-    if (recorrente) localStorage.setItem(`pagamento_conta_${conta.id}_${novaData}`, pago ? 'true' : 'false');
-    salvarContasManuais(contas);
+    try {
+        await salvarContasManuais(contas);
+        if (recorrente) await salvarPagamentoContaNoBanco(conta.id, novaData, pago);
+    } catch (erro) {
+        console.error(erro);
+        alert('Não foi possível salvar a conta a pagar na nuvem. Tente novamente.');
+    }
 }
 
 function montarTextoParaCompartilharRelatorio() {
