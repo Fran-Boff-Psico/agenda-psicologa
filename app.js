@@ -2756,11 +2756,26 @@ function aplicarConfiguracoesVisuais() {
     if (telaAbertura) telaAbertura.classList.toggle('tela-abertura-com-imagem', Boolean(imagemExibidaNaAbertura));
     if (logoAbertura) {
         if (imagemExibidaNaAbertura) {
+            const usarImagemPadraoDeAbertura = () => {
+                logoAbertura.dataset.imagemPadrao = 'true';
+                logoAbertura.src = IMAGEM_PADRAO_ABERTURA;
+                logoAbertura.alt = 'Imagem padrão de abertura da clínica';
+                logoAbertura.style.display = 'block';
+                if (simboloAbertura) simboloAbertura.style.display = 'none';
+                if (telaAbertura) telaAbertura.classList.add('tela-abertura-com-imagem');
+            };
+
+            logoAbertura.dataset.imagemPadrao = imagemAberturaUrl ? 'false' : 'true';
             logoAbertura.src = imagemExibidaNaAbertura;
             logoAbertura.alt = imagemAberturaUrl ? 'Imagem da tela de abertura' : 'Imagem padrão de abertura da clínica';
             logoAbertura.style.display = 'block';
             if (simboloAbertura) simboloAbertura.style.display = 'none';
             logoAbertura.onerror = () => {
+                // Uma configuração antiga ou inválida não pode ocultar a imagem padrão no celular.
+                if (logoAbertura.dataset.imagemPadrao !== 'true') {
+                    usarImagemPadraoDeAbertura();
+                    return;
+                }
                 logoAbertura.style.display = 'none';
                 if (simboloAbertura) simboloAbertura.style.display = 'grid';
                 if (telaAbertura) telaAbertura.classList.remove('tela-abertura-com-imagem');
