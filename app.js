@@ -745,6 +745,15 @@ async function carregarAgendaSemanal() {
                     });
                 }
 
+                // A origem do registro (recorrente, alterado ou pontual) não pode
+                // interferir na ordem visual: cada dia sempre segue do menor horário ao maior.
+                itensDoDia.sort((primeiro, segundo) => {
+                    const horaPrimeiro = /^\d{2}:\d{2}$/.test(primeiro.hora || '') ? primeiro.hora : '99:99';
+                    const horaSegundo = /^\d{2}:\d{2}$/.test(segundo.hora || '') ? segundo.hora : '99:99';
+                    return horaPrimeiro.localeCompare(horaSegundo)
+                        || String(primeiro.nome || '').localeCompare(String(segundo.nome || ''), 'pt-BR', { sensitivity: 'base' });
+                });
+
                 dadosSemanaCorrente.push({
                     dataISO: dataISOChave,
                     itens: itensDoDia,
