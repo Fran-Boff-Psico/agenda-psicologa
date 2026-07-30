@@ -1700,14 +1700,33 @@ async function executarSalvamentoPorEscopo(pacienteId, dataOriginalISO, novaData
         if (escopo === 'somente') {
             const payload = { paciente_id: pacienteId, data: novaDataISO, hora: novaHora, modalidade: novaMod, valor: novoVal, status: statusSessao };
             if (novaDataISO !== dataOriginalISO) {
-                await bancoDados.from('agendamentos').insert([{ paciente_id: pacienteId, data: dataOriginalISO, hora: novaHora, status: 'Cancelado', modalidade: novaMod, valor: novoVal }]);
+                // A agenda recorrente precisa de uma exceção cancelada na data antiga.
+                // Primeiro removemos qualquer registro anterior desse paciente nessa data;
+                // assim uma alteração pontual nunca deixa a sessão antiga duplicada.
+                const { error: erroLimparDataOriginal } = await bancoDados
+                    .from('agendamentos')
+                    .delete()
+                    .eq('paciente_id', pacienteId)
+                    .eq('data', dataOriginalISO);
+                if (erroLimparDataOriginal) throw erroLimparDataOriginal;
+
+                const { error: erroCancelarDataOriginal } = await bancoDados
+                    .from('agendamentos')
+                    .insert([{ paciente_id: pacienteId, data: dataOriginalISO, hora: novaHora, status: 'Cancelado', modalidade: novaMod, valor: novoVal }]);
+                if (erroCancelarDataOriginal) throw erroCancelarDataOriginal;
             }
-            const { data: extNova } = await bancoDados.from('agendamentos').select('id').eq('paciente_id', pacienteId).eq('data', novaDataISO);
-            if (extNova && extNova.length > 0) {
-                await bancoDados.from('agendamentos').update(payload).eq('id', extNova[0].id);
-            } else {
-                await bancoDados.from('agendamentos').insert([payload]);
-            }
+
+            // Há apenas uma ocorrência por paciente/data. Limpar antes de inserir também
+            // corrige duplicações antigas que possam ter ficado salvas no banco.
+            const { error: erroLimparNovaData } = await bancoDados
+                .from('agendamentos')
+                .delete()
+                .eq('paciente_id', pacienteId)
+                .eq('data', novaDataISO);
+            if (erroLimparNovaData) throw erroLimparNovaData;
+
+            const { error: erroSalvarNovaData } = await bancoDados.from('agendamentos').insert([payload]);
+            if (erroSalvarNovaData) throw erroSalvarNovaData;
         } else {
             const objData = criarDataLocal(novaDataISO);
             const diasTexto = ['Domingo', 'Segunda', 'Terca', 'Quarta', 'Quinta', 'Sexta', 'Sabado'];
@@ -2228,6 +2247,12 @@ async function salvarContaPagarOcorrencia(pacienteId, dataOriginal, novaData, es
     let contas = obterContasManuais();
     const recorrente = escopoContaPagar === 'demais';
     const origem = recorrente ? `recorrencia_pagar_${pacienteId}_${novaData}` : origemNova;
+
+    // Quando uma sessão pontual muda de dia, a conta pontual acompanha a sessão.
+    // Isso evita que um lançamento fique indevidamente também na data anterior.
+    if (!recorrente && novaData !== dataOriginal) {
+        contas = contas.filter(item => !(item.tipo === 'pagar' && !item.recorrente && item.origem === origemOriginal));
+    }
     const indice = contas.findIndex(item => item.tipo === 'pagar' && item.origem === origem);
     let pacienteNome = 'Paciente';
     if (bancoDados) {
