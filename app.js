@@ -6,6 +6,7 @@ const SUBTITULO_PADRAO_CLINICA = 'CRP 07/42161';
 // Esta imagem acompanha o projeto e, por isso, é igual na abertura Web e mobile.
 // Uma imagem escolhida em Configurações continua tendo prioridade sobre ela.
 const IMAGEM_PADRAO_ABERTURA = 'assets/logo-abertura-padrao.jpeg';
+const IMAGEM_LOGO_PRONTUARIO = 'assets/logo Prontuário.png';
 
 let bancoDados;
 if (window.supabase) {
@@ -29,6 +30,7 @@ let arquivosProntuarioSelecionados = [];
 let reconhecimentoProntuario = null;
 let ditadoProntuarioAtivo = false;
 let temporizadorTelaAbertura = null;
+let temporizadorAvisoSistema = null;
 let tokenGoogleDrive = '';
 let tokenGoogleDriveExpiraEm = 0;
 let telaAtual = 'dashboard';
@@ -49,6 +51,22 @@ const MAPA_CLASSES_STATUS = {
     'Agendado': 'status-agendado',
     'Cancelado': 'status-cancelado'
 };
+
+function mostrarAvisoSistema(mensagem) {
+    let aviso = document.getElementById('avisoSistema');
+    if (!aviso) {
+        aviso = document.createElement('div');
+        aviso.id = 'avisoSistema';
+        aviso.className = 'aviso-sistema';
+        aviso.setAttribute('role', 'status');
+        aviso.setAttribute('aria-live', 'polite');
+        document.body.appendChild(aviso);
+    }
+    aviso.textContent = mensagem;
+    aviso.classList.add('visivel');
+    if (temporizadorAvisoSistema) window.clearTimeout(temporizadorAvisoSistema);
+    temporizadorAvisoSistema = window.setTimeout(() => aviso.classList.remove('visivel'), 3000);
+}
 
 function chavePagamentoOcorrencia(pacienteId, dataISO) {
     return `pagamento_ocorrencia_${pacienteId}_${dataISO}`;
@@ -1010,6 +1028,14 @@ async function converterImagemParaDataUrl(endereco) {
 }
 
 async function obterLogoProntuario() {
+    // O prontuário possui uma identidade visual própria, definida pela clínica.
+    try {
+        return await converterImagemParaDataUrl(IMAGEM_LOGO_PRONTUARIO);
+    } catch (erroLogoProntuario) {
+        console.warn('Logo específico do prontuário não pôde ser carregado.', erroLogoProntuario);
+    }
+
+    // Mantém a identidade configurada como alternativa, caso o arquivo padrão não exista.
     const logoConfigurado = String(localStorage.getItem('cfg_logo_url') || '').trim();
     if (/^data:image\//i.test(logoConfigurado)) return logoConfigurado;
     if (/^https?:\/\//i.test(logoConfigurado)) return logoConfigurado;
@@ -1034,7 +1060,7 @@ async function montarDocumentoProntuario(sessao, texto) {
     const logo = await obterLogoProntuario();
     const conteudo = escaparHTML(texto || '').replace(/\r?\n/g, '<br>');
     const blocoLogo = logo ? `<img class="logo-clinica" src="${escaparHTML(logo)}" alt="Logo da clínica">` : '';
-    return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><style>body{font-family:Arial,sans-serif;color:#172033;margin:48px;line-height:1.55}.cabecalho{margin:0 0 26px;padding:0;border:0}.logo-clinica{display:block;width:138px;height:auto;max-height:100px;object-fit:contain;object-position:left center;margin:0 0 18px 0}h1{margin:0 0 10px;font-size:24px;color:#234f50}.dados{margin:0;color:#475569;line-height:1.7}.titulo-registro{margin:30px 0 10px;font-size:15px;font-weight:bold;color:#234f50}.conteudo{margin:0;font-size:12pt;line-height:1.65}</style></head><body><header class="cabecalho">${blocoLogo}<h1>Prontuário de Atendimento</h1><p class="dados"><b>Paciente:</b> ${escaparHTML(sessao.nomePaciente || 'Paciente')}<br><b>Data do atendimento:</b> ${escaparHTML(dataAtendimento)} às ${escaparHTML(horaAtendimento)}<br><b>Registrado em:</b> ${escaparHTML(registradoEm)}</p></header><div class="titulo-registro">Registro clínico</div><main class="conteudo">${conteudo || '<p></p>'}</main></body></html>`;
+    return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><style>body{font-family:Arial,sans-serif;color:#172033;margin:48px;line-height:1.55}.cabecalho{margin:0 0 26px;padding:0;border:0}.linha-identidade{display:flex;align-items:center;width:100%;margin:0 0 20px}.logo-clinica{display:inline-block;width:190px;height:auto;max-height:104px;object-fit:contain;object-position:left center;vertical-align:middle}.titulo-documento{display:inline-block;width:calc(100% - 205px);margin:0 0 0 15px;color:#234f50;font-size:24px;font-weight:bold;line-height:1.2;text-align:center;vertical-align:middle}.dados{margin:0;color:#475569;line-height:1.7}.titulo-registro{margin:30px 0 10px;font-size:15px;font-weight:bold;color:#234f50}.conteudo{margin:0;font-size:12pt;line-height:1.65}.assinatura{margin-top:42px;color:#234f50;font-size:12pt;line-height:1.55}.assinatura-nome{font-weight:bold}</style></head><body><header class="cabecalho"><div class="linha-identidade">${blocoLogo}<span class="titulo-documento">Prontuário de Atendimento</span></div><p class="dados"><b>Paciente:</b> ${escaparHTML(sessao.nomePaciente || 'Paciente')}<br><b>Data do atendimento:</b> ${escaparHTML(dataAtendimento)} às ${escaparHTML(horaAtendimento)}<br><b>Registrado em:</b> ${escaparHTML(registradoEm)}</p></header><div class="titulo-registro">Registro clínico</div><main class="conteudo">${conteudo || '<p></p>'}</main><footer class="assinatura"><div class="assinatura-nome">${TITULO_PADRAO_CLINICA}</div><div>${SUBTITULO_PADRAO_CLINICA}</div></footer></body></html>`;
 }
 
 function extrairTextoClinicoProntuario(texto) {
@@ -1045,7 +1071,9 @@ function extrairTextoClinicoProntuario(texto) {
     // Modelo atual não usa marcador invisível, pois ele ficava visível em alguns celulares.
     // O título do registro separa com segurança os dados do cabeçalho do texto clínico.
     const tituloRegistro = /registro\s+cl[ií]nico\s*/i.exec(String(texto || ''));
-    return tituloRegistro ? String(texto).slice((tituloRegistro.index || 0) + tituloRegistro[0].length).trim() : String(texto || '');
+    const textoClinico = tituloRegistro ? String(texto).slice((tituloRegistro.index || 0) + tituloRegistro[0].length).trim() : String(texto || '');
+    // A assinatura pertence ao documento, não às anotações editáveis da sessão.
+    return textoClinico.replace(/\s*Psicóloga Franciele Boff\s*CRP\s*07\s*\/\s*42161\s*$/i, '').trim();
 }
 
 function nomeSeguroDrive(nome) {
@@ -2920,7 +2948,7 @@ function salvarConfiguracoes() {
         }
     }
     aplicarConfiguracoesVisuais();
-    alert('Configurações salvas com sucesso!');
+    mostrarAvisoSistema('Configurações salvas com sucesso!');
 }
 
 
