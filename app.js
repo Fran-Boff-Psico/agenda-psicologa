@@ -997,28 +997,55 @@ function nomeDocumentoProntuario(sessao) {
     return `Prontuario - ${nomeSeguroDrive(sessao.nomePaciente)} - ${nomePastaDataAtendimento(sessao.dataISO, sessao.hora)}`;
 }
 
-function obterLogoProntuario() {
-    const logoConfigurado = String(localStorage.getItem('cfg_logo_url') || '').trim();
-    if (/^(data:image\/|https?:\/\/)/i.test(logoConfigurado)) return logoConfigurado;
-
-    const logoNaTela = String(document.getElementById('logoClinicaDisplay')?.getAttribute('src') || '').trim();
-    return /^(data:image\/|https?:\/\/)/i.test(logoNaTela) ? logoNaTela : '';
+async function converterImagemParaDataUrl(endereco) {
+    const resposta = await fetch(endereco);
+    if (!resposta.ok) throw new Error('Não foi possível carregar o logo padrão.');
+    const arquivo = await resposta.blob();
+    return new Promise((resolve, reject) => {
+        const leitor = new FileReader();
+        leitor.onload = () => resolve(String(leitor.result || ''));
+        leitor.onerror = () => reject(new Error('Não foi possível preparar o logo do prontuário.'));
+        leitor.readAsDataURL(arquivo);
+    });
 }
 
-function montarDocumentoProntuario(sessao, texto) {
+async function obterLogoProntuario() {
+    const logoConfigurado = String(localStorage.getItem('cfg_logo_url') || '').trim();
+    if (/^data:image\//i.test(logoConfigurado)) return logoConfigurado;
+    if (/^https?:\/\//i.test(logoConfigurado)) return logoConfigurado;
+
+    const logoNaTela = String(document.getElementById('logoClinicaDisplay')?.getAttribute('src') || '').trim();
+    if (/^(data:image\/|https?:\/\/)/i.test(logoNaTela)) return logoNaTela;
+
+    // O logo padrão acompanha o arquivo HTML. Convertê-lo em data URL garante que
+    // ele seja incorporado ao documento do Drive, inclusive quando aberto depois.
+    try {
+        return await converterImagemParaDataUrl(IMAGEM_PADRAO_ABERTURA);
+    } catch (erro) {
+        console.warn('Logo não pôde ser incorporado ao prontuário.', erro);
+        return '';
+    }
+}
+
+async function montarDocumentoProntuario(sessao, texto) {
     const dataAtendimento = formatarDataBR(criarDataLocal(sessao.dataISO));
     const horaAtendimento = String(sessao.hora || '').substring(0, 5) || '--:--';
     const registradoEm = new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
-    const logo = obterLogoProntuario();
+    const logo = await obterLogoProntuario();
     const conteudo = escaparHTML(texto || '').replace(/\r?\n/g, '<br>');
-    const blocoLogo = logo ? `<td class="celula-logo"><img src="${escaparHTML(logo)}" alt="Logo da clínica" width="220"></td>` : '';
-    return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><style>body{font-family:Arial,sans-serif;color:#172033;margin:48px;line-height:1.55}.cabecalho{width:100%;border-collapse:collapse;border-bottom:2px solid #3f7475;margin-bottom:18px}.cabecalho td{vertical-align:middle;padding:0 0 18px}.celula-logo{width:235px;padding-right:24px!important}.celula-logo img{display:block;width:220px;height:auto;max-height:110px;object-fit:contain}h1{margin:0 0 8px;font-size:24px;color:#234f50}.dados{margin:0;color:#475569}.marcador{font-size:1px;color:#fff;height:1px;overflow:hidden}.conteudo{margin-top:26px;font-size:12pt}</style></head><body><table class="cabecalho" role="presentation"><tr>${blocoLogo}<td><h1>Prontuário de Atendimento</h1><p class="dados"><b>Paciente:</b> ${escaparHTML(sessao.nomePaciente || 'Paciente')}<br><b>Data do atendimento:</b> ${escaparHTML(dataAtendimento)} às ${escaparHTML(horaAtendimento)}<br><b>Registrado em:</b> ${escaparHTML(registradoEm)}</p></td></tr></table><div class="marcador">[[AGENDA_REGISTRO_CLINICO]]</div><main class="conteudo">${conteudo || '<p></p>'}</main></body></html>`;
+    const blocoLogo = logo ? `<img class="logo-clinica" src="${escaparHTML(logo)}" alt="Logo da clínica">` : '';
+    return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><style>body{font-family:Arial,sans-serif;color:#172033;margin:48px;line-height:1.55}.cabecalho{margin:0 0 26px;padding:0;border:0}.logo-clinica{display:block;width:138px;height:auto;max-height:100px;object-fit:contain;object-position:left center;margin:0 0 18px 0}h1{margin:0 0 10px;font-size:24px;color:#234f50}.dados{margin:0;color:#475569;line-height:1.7}.titulo-registro{margin:30px 0 10px;font-size:15px;font-weight:bold;color:#234f50}.conteudo{margin:0;font-size:12pt;line-height:1.65}</style></head><body><header class="cabecalho">${blocoLogo}<h1>Prontuário de Atendimento</h1><p class="dados"><b>Paciente:</b> ${escaparHTML(sessao.nomePaciente || 'Paciente')}<br><b>Data do atendimento:</b> ${escaparHTML(dataAtendimento)} às ${escaparHTML(horaAtendimento)}<br><b>Registrado em:</b> ${escaparHTML(registradoEm)}</p></header><div class="titulo-registro">Registro clínico</div><main class="conteudo">${conteudo || '<p></p>'}</main></body></html>`;
 }
 
 function extrairTextoClinicoProntuario(texto) {
     const marcador = '[[AGENDA_REGISTRO_CLINICO]]';
     const indice = String(texto || '').indexOf(marcador);
-    return indice >= 0 ? String(texto).slice(indice + marcador.length).trim() : String(texto || '');
+    if (indice >= 0) return String(texto).slice(indice + marcador.length).trim();
+
+    // Modelo atual não usa marcador invisível, pois ele ficava visível em alguns celulares.
+    // O título do registro separa com segurança os dados do cabeçalho do texto clínico.
+    const tituloRegistro = /registro\s+cl[ií]nico\s*/i.exec(String(texto || ''));
+    return tituloRegistro ? String(texto).slice((tituloRegistro.index || 0) + tituloRegistro[0].length).trim() : String(texto || '');
 }
 
 function nomeSeguroDrive(nome) {
@@ -1320,7 +1347,7 @@ async function salvarProntuarioSessao() {
         const estrutura = await garantirEstruturaGoogleDrive(prontuarioSessaoAtual, prontuarioSessaoAtual.dataISO);
         const nomeDataLegado = nomeDataAtendimentoLegada(prontuarioSessaoAtual.dataISO);
         const nomeDocumento = nomeDocumentoProntuario(prontuarioSessaoAtual);
-        const documentoHtml = montarDocumentoProntuario(prontuarioSessaoAtual, texto);
+        const documentoHtml = await montarDocumentoProntuario(prontuarioSessaoAtual, texto);
         const arquivoTexto = new File([documentoHtml], nomeDocumento, { type: 'text/html;charset=utf-8' });
         const arquivosDaSessao = await listarArquivosGoogleDrive(estrutura.pastaSessao.id);
         const arquivoExistente = registroAnterior.driveArquivoProntuarioId
