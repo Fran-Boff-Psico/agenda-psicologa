@@ -347,6 +347,21 @@ function contasNoPeriodo(tipo, inicio, fim) {
     return contasPontuais.concat(contasRecorrentes).sort((a, b) => a.data.localeCompare(b.data));
 }
 
+// Contas manuais sem paciente continuam sendo registros independentes. Já as contas
+// vinculadas a uma pessoa só entram no financeiro enquanto esse paciente existir e estiver ativo.
+function filtrarContasDePacientesAtivos(contas, baseFinanceira) {
+    if (!baseFinanceira?.pacientes) return contas;
+    const pacientesAtivos = new Set(
+        baseFinanceira.pacientes
+            .filter(paciente => paciente.status !== 'Inativo')
+            .map(paciente => String(paciente.id))
+    );
+    return contas.filter(conta => {
+        const pacienteId = conta?.pacienteId == null || conta.pacienteId === '' ? '' : String(conta.pacienteId);
+        return !pacienteId || pacientesAtivos.has(pacienteId);
+    });
+}
+
 function totalizarContas(contas, somenteEmAberto = false) {
     return contas.filter(conta => !somenteEmAberto || !conta.pago).reduce((total, conta) => total + Number(conta.valor || 0), 0);
 }
@@ -1943,9 +1958,11 @@ async function atualizarIndicadoresFinanceirosDashboard() {
         const base = await buscarBaseFinanceira();
         if (!base) return;
         const periodo = obterPeriodoMesAtual();
-        const ocorrencias = montarOcorrenciasFinanceiras(base, periodo.inicio, periodo.fim).concat(transformarContasReceberEmLinhas(contasNoPeriodo('receber', periodo.inicio, periodo.fim)));
+        const contasReceber = filtrarContasDePacientesAtivos(contasNoPeriodo('receber', periodo.inicio, periodo.fim), base);
+        const contasPagar = filtrarContasDePacientesAtivos(contasNoPeriodo('pagar', periodo.inicio, periodo.fim), base);
+        const ocorrencias = montarOcorrenciasFinanceiras(base, periodo.inicio, periodo.fim).concat(transformarContasReceberEmLinhas(contasReceber));
         const totais = calcularTotaisFinanceiros(ocorrencias);
-        const pagar = totalizarContas(contasNoPeriodo('pagar', periodo.inicio, periodo.fim), true);
+        const pagar = totalizarContas(contasPagar, true);
         atualizarCardsFinanceiros(totais, pagar);
     } catch (err) {
         console.error(err);
@@ -2007,8 +2024,8 @@ async function gerarRelatorioFinanceiro() {
         const base = await buscarBaseFinanceira();
         const filtroRegistrosManuais = selectPaciente.value === 'reg_manual';
         const pacienteFiltro = filtroRegistrosManuais ? '' : selectPaciente.value;
-        const contasReceber = contasNoPeriodo('receber', inicio, fim);
-        const contasPagar = contasNoPeriodo('pagar', inicio, fim)
+        const contasReceber = filtrarContasDePacientesAtivos(contasNoPeriodo('receber', inicio, fim), base);
+        const contasPagar = filtrarContasDePacientesAtivos(contasNoPeriodo('pagar', inicio, fim), base)
             .filter(conta => filtroRegistrosManuais || !pacienteFiltro || String(conta.pacienteId || '') === String(pacienteFiltro));
         const linhasReceberManual = transformarContasReceberEmLinhas(contasReceber);
         const linhasPagar = transformarContasPagarEmLinhas(contasPagar);
@@ -2081,7 +2098,9 @@ async function atualizarDashboard() {
         const { data } = await bancoDados.from('pacientes').select('status');
         let ativos = 0;
         if (data) data.forEach(p => p.status === 'Inativo' ? null : ativos++);
-        if (document.getElementById('totalAtivos')) document.getElementById('totalAtivos').innerText = ativos;
+        document.querySelectorAll('[data-total-ativos]').forEach(campo => {
+            campo.innerText = ativos;
+        });
         atualizarIndicadoresFinanceirosDashboard();
     } catch (err) {
         console.error(err);
@@ -2226,6 +2245,42 @@ function filtroStatusContas(tipo) {
     return document.getElementById(tipo === 'pagar' ? 'filtroPagarStatus' : 'filtroReceberStatus')?.value || 'todos';
 }
 
+function montarControlePagamentoFinanceiro(linha, tipo, contaManual) {
+    const permiteMarcar = Boolean(linha.contaId && (contaManual || tipo === 'pagar'));
+    if (!permiteMarcar) {
+        return `<span class="${linha.pago ? 'badge-pago' : 'badge-aberto'}">${linha.pago ? 'Pago' : 'Em aberto'}</span>`;
+    }
+
+    const contaId = String(linha.contaId).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const chavePagamento = String(linha.chavePagamento || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    return `<label class="checkbox-pagamento checkbox-tabela"><input type="checkbox" ${linha.pago ? 'checked' : ''} onchange="alternarContaPaga('${contaId}', '${tipo}', this.checked, '${chavePagamento}')"><span>Pago</span></label>`;
+}
+
+function montarCardsFinanceirosMobile(detalhes) {
+    const grupos = new Map();
+    detalhes.forEach(detalhe => {
+        const nome = detalhe.linha.pacienteNome || 'Conta financeira';
+        if (!grupos.has(nome)) grupos.set(nome, []);
+        grupos.get(nome).push(detalhe);
+    });
+
+    return `<div class="lista-contas-mobile">${Array.from(grupos.entries()).map(([nome, itens]) => `
+        <article class="card-conta-mobile">
+            <h4>${escaparHTML(nome)}</h4>
+            ${itens.map(({ linha, statusAtendimento, pagamento, acao }) => `
+                <div class="item-conta-mobile">
+                    <div class="item-conta-mobile-topo"><strong>${formatarDataBR(linha.dataObj)}</strong><strong>${formatarMoeda(linha.valor)}</strong></div>
+                    <div class="item-conta-mobile-linha"><span>Categoria</span><span>${escaparHTML(linha.modalidade || '—')}</span></div>
+                    ${linha.hora && linha.hora !== '--:--' ? `<div class="item-conta-mobile-linha"><span>Hora</span><span>${escaparHTML(linha.hora)}</span></div>` : ''}
+                    <div class="item-conta-mobile-linha"><span>Status</span><span>${escaparHTML(statusAtendimento)}</span></div>
+                    <div class="item-conta-mobile-linha"><span>Pagamento</span>${pagamento}</div>
+                    ${acao ? `<div class="item-conta-mobile-linha item-conta-mobile-acoes">${acao}</div>` : ''}
+                </div>
+            `).join('')}
+        </article>
+    `).join('')}</div>`;
+}
+
 async function carregarTelaContas(tipo) {
     await sincronizarFinanceiroComBanco();
     const periodo = obterPeriodoFiltrosContas(tipo);
@@ -2238,9 +2293,13 @@ async function carregarTelaContas(tipo) {
     let baseFinanceira = null;
     if (bancoDados) {
         baseFinanceira = await buscarBaseFinanceira();
-        const ocorrencias = montarOcorrenciasFinanceiras(baseFinanceira, periodo.inicio, periodo.fim).concat(transformarContasReceberEmLinhas(contasNoPeriodo('receber', periodo.inicio, periodo.fim)));
+        const contasReceberAtivas = filtrarContasDePacientesAtivos(contasNoPeriodo('receber', periodo.inicio, periodo.fim), baseFinanceira);
+        const contasPagarAtivas = filtrarContasDePacientesAtivos(contasNoPeriodo('pagar', periodo.inicio, periodo.fim), baseFinanceira);
+        const contasTipoAtivas = tipo === 'pagar' ? contasPagarAtivas : contasReceberAtivas;
+        const ocorrencias = montarOcorrenciasFinanceiras(baseFinanceira, periodo.inicio, periodo.fim).concat(transformarContasReceberEmLinhas(contasReceberAtivas));
         totais = calcularTotaisFinanceiros(ocorrencias);
-        linhas = tipo === 'receber' ? ocorrencias : transformarContasPagarEmLinhas(contasTipo);
+        pagar = totalizarContas(contasPagarAtivas, true);
+        linhas = tipo === 'receber' ? ocorrencias : transformarContasPagarEmLinhas(contasTipoAtivas);
     } else {
         linhas = tipo === 'receber' ? transformarContasReceberEmLinhas(contasTipo) : transformarContasPagarEmLinhas(contasTipo);
     }
@@ -2249,14 +2308,16 @@ async function carregarTelaContas(tipo) {
     if (filtro === 'pago') linhas = linhas.filter(linha => linha.pago);
     if (filtro === 'aberto') linhas = linhas.filter(linha => !linha.pago);
     if (linhas.length === 0) { lista.innerHTML = 'Nenhuma conta encontrada para os filtros selecionados.'; return; }
-    lista.innerHTML = `<table class="tabela-relatorio"><thead><tr><th>Data</th><th>Paciente / Descrição</th><th>Categoria</th><th>Status do atendimento</th><th>Pagamento</th><th>Valor</th><th></th></tr></thead><tbody>${linhas.map(linha => {
+    const detalhes = linhas.map(linha => {
         const contaManual = linha.contaId ? obterContasManuais().find(conta => conta.id === linha.contaId) : null;
-        const pagamento = contaManual ? `<label class="checkbox-pagamento checkbox-tabela"><input type="checkbox" ${linha.pago ? 'checked' : ''} onchange="alternarContaPaga('${linha.contaId}', '${tipo}', this.checked, '${linha.chavePagamento || ''}')"><span>Pago</span></label>` : `<span class="${linha.pago ? 'badge-pago' : 'badge-aberto'}">${linha.pago ? 'Pago' : 'Em aberto'}</span>`;
         const statusAtendimento = linha.pacienteId
             ? (tipo === 'receber' ? (linha.status || 'Agendado') : obterStatusAtendimentoDaLinhaFinanceira(linha, baseFinanceira))
             : '—';
-        return `<tr><td data-label="Data">${formatarDataBR(linha.dataObj)}</td><td data-label="Paciente / Descrição">${escaparHTML(linha.pacienteNome)}</td><td data-label="Categoria">${escaparHTML(linha.modalidade || '')}</td><td data-label="Status do atendimento">${escaparHTML(statusAtendimento)}</td><td data-label="Pagamento">${pagamento}</td><td data-label="Valor">${formatarMoeda(linha.valor)}</td><td class="celula-acoes-tabela">${contaManual && !linha.recorrente ? `<button class="btn-perigo btn-conta-excluir" onclick="excluirContaManual('${linha.contaId}', '${tipo}')">Excluir</button>` : ''}</td></tr>`;
-    }).join('')}</tbody></table>`;
+        const pagamento = montarControlePagamentoFinanceiro(linha, tipo, contaManual);
+        const acao = contaManual && !linha.recorrente ? `<button class="btn-perigo btn-conta-excluir" onclick="excluirContaManual('${linha.contaId}', '${tipo}')">Excluir</button>` : '';
+        return { linha, statusAtendimento, pagamento, acao };
+    });
+    lista.innerHTML = `${montarCardsFinanceirosMobile(detalhes)}<table class="tabela-relatorio"><thead><tr><th>Data</th><th>Paciente / Descrição</th><th>Categoria</th><th>Status do atendimento</th><th>Pagamento</th><th>Valor</th><th></th></tr></thead><tbody>${detalhes.map(({ linha, statusAtendimento, pagamento, acao }) => `<tr><td data-label="Data">${formatarDataBR(linha.dataObj)}</td><td data-label="Paciente / Descrição">${escaparHTML(linha.pacienteNome)}</td><td data-label="Categoria">${escaparHTML(linha.modalidade || '')}</td><td data-label="Status do atendimento">${escaparHTML(statusAtendimento)}</td><td data-label="Pagamento">${pagamento}</td><td data-label="Valor">${formatarMoeda(linha.valor)}</td><td class="celula-acoes-tabela">${acao}</td></tr>`).join('')}</tbody></table>`;
 }
 
 function alternarDescricaoContaPagarOcorrencia() {
