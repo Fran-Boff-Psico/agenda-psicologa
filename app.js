@@ -571,7 +571,7 @@ function atualizarTelasFinanceirasAbertas() {
     } else if (telaAtual === 'contasPagar') {
         carregarTelaContas('pagar');
     } else if (telaAtual === 'novoPaciente' && idPacienteEditando) {
-        renderizarSidebarCalendarioPaciente(idPacienteEditando);
+        renderizarSidebarCalendarioPaciente(idPacienteEditando, true);
     }
 }
 
@@ -658,13 +658,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('dataInicial')?.addEventListener('change', () => {
         atualizarDiaSemanaAutomatico();
-        configurarPeriodoPadraoSidebar();
-        renderizarSidebarCalendarioPaciente(idPacienteEditando);
+        // A alteração do plano não pode trocar as datas que a profissional filtrou.
+        renderizarSidebarCalendarioPaciente(idPacienteEditando, true);
     });
 
     ['frequencia', 'horario', 'modalidade', 'valor'].forEach(campoId => {
         document.getElementById(campoId)?.addEventListener('change', () => {
-            renderizarSidebarCalendarioPaciente(idPacienteEditando);
+            renderizarSidebarCalendarioPaciente(idPacienteEditando, true);
         });
     });
 
@@ -929,7 +929,6 @@ window.abrirEditorDiretoAgenda = function(pacienteId, dataISO, hora, modalidade,
         await salvarContaPagarOcorrencia(pacienteId, dataISO, novaData, escopoContaPagar, novaFreq);
         if (novaData !== dataISO) {
             await removerPagamentoAtendimentoNoBanco(pacienteId, dataISO);
-            incluirDataNoPeriodoSidebar(novaData);
         }
         fecharModalAgendamento();
         carregarAgendaSemanal();
@@ -1643,76 +1642,34 @@ function configurarPeriodoPadraoSidebar() {
     const fimInput = document.getElementById('periodoConsultaFim');
     if (!inicioInput || !fimInput) return;
 
-    const dataInicialPlano = document.getElementById('dataInicial')?.value;
-    const hoje = normalizarData(new Date());
-    const limiteFuturo = adicionarDias(hoje, 90);
-
-    inicioInput.value = dataInicialPlano || formatarDataISO(hoje);
-    fimInput.value = formatarDataISO(limiteFuturo);
-    fimInput.max = formatarDataISO(limiteFuturo);
+    const periodoMesAtual = obterPeriodoMesAtual();
+    inicioInput.value = formatarDataISO(periodoMesAtual.inicio);
+    fimInput.value = formatarDataISO(periodoMesAtual.fim);
 }
 
 function obterPeriodoConsultaPaciente() {
     const inicioInput = document.getElementById('periodoConsultaInicio');
     const fimInput = document.getElementById('periodoConsultaFim');
     const aviso = document.getElementById('aviso-periodo-paciente');
-    const hoje = normalizarData(new Date());
-    const limiteFuturo = adicionarDias(hoje, 90);
 
     if (!inicioInput || !fimInput) return null;
 
-    if (!inicioInput.value || !fimInput.value) {
-        configurarPeriodoPadraoSidebar();
-    }
-
-    let dataInicio = criarDataLocal(inicioInput.value);
-    let dataFim = criarDataLocal(fimInput.value);
-    let mensagem = '';
+    const dataInicio = criarDataLocal(inicioInput.value);
+    const dataFim = criarDataLocal(fimInput.value);
 
     if (!dataInicio || !dataFim) {
-        dataInicio = hoje;
-        dataFim = limiteFuturo;
-        inicioInput.value = formatarDataISO(dataInicio);
-        fimInput.value = formatarDataISO(dataFim);
-        mensagem = 'Período inválido. Ajustei para hoje até 90 dias à frente.';
-    }
-
-    dataInicio = normalizarData(dataInicio);
-    dataFim = normalizarData(dataFim);
-
-    if (dataFim > limiteFuturo) {
-        dataFim = limiteFuturo;
-        fimInput.value = formatarDataISO(limiteFuturo);
-        mensagem = 'Para datas futuras, a consulta foi limitada a 90 dias a partir de hoje.';
+        if (aviso) aviso.innerText = 'Informe uma data inicial e uma data final válidas.';
+        return null;
     }
 
     if (dataInicio > dataFim) {
-        const ajuste = dataInicio;
-        dataInicio = dataFim;
-        dataFim = ajuste;
-        inicioInput.value = formatarDataISO(dataInicio);
-        fimInput.value = formatarDataISO(dataFim);
-        mensagem = 'A data inicial estava maior que a final. Invertemos o período automaticamente.';
+        if (aviso) aviso.innerText = 'A data inicial não pode ser posterior à data final.';
+        return null;
     }
 
-    fimInput.max = formatarDataISO(limiteFuturo);
-    if (aviso) aviso.innerText = mensagem;
+    if (aviso) aviso.innerText = '';
 
     return { dataInicio, dataFim };
-}
-
-// Ao reagendar para fora do período que já estava aberto no perfil, mantém a nova
-// data visível imediatamente, em vez de exibir somente a antiga exceção cancelada.
-function incluirDataNoPeriodoSidebar(dataISO) {
-    const data = criarDataLocal(dataISO);
-    const inicioInput = document.getElementById('periodoConsultaInicio');
-    const fimInput = document.getElementById('periodoConsultaFim');
-    if (!data || !inicioInput || !fimInput) return;
-
-    const inicioAtual = criarDataLocal(inicioInput.value);
-    const fimAtual = criarDataLocal(fimInput.value);
-    if (!inicioAtual || data < inicioAtual) inicioInput.value = formatarDataISO(data);
-    if (!fimAtual || data > fimAtual) fimInput.value = formatarDataISO(data);
 }
 
 async function renderizarSidebarCalendarioPaciente(pacienteId, manterPeriodoAtual = false) {
