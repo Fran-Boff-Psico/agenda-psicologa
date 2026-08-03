@@ -54,6 +54,10 @@
 
         <div id="dashboard" class="tela" style="display: block;">
             <div class="cards-indicadores dashboard-indicadores">
+                <div class="card-ind card-pacientes-ativos">
+                    <h3>Pacientes Ativos</h3>
+                    <p id="totalAtivos" data-total-ativos>0</p>
+                </div>
                 <div class="card-ind">
                     <h3>Previsão Mês Atual</h3>
                     <p id="previsaoMesAtual">R$ 0,00</p>
@@ -74,6 +78,10 @@
                     <h3>R$ Saldo</h3>
                     <p id="saldoMesAtual">R$ 0,00</p>
                 </div>
+            </div>
+            <div class="indicador-ativos-mobile" aria-label="Pacientes ativos">
+                <span>Pacientes Ativos</span>
+                <strong data-total-ativos>0</strong>
             </div>
             <div id="grade-agenda-container"></div>
         </div>
