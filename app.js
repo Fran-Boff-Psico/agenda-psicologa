@@ -1761,6 +1761,8 @@ async function renderizarSidebarCalendarioPaciente(pacienteId, manterPeriodoAtua
 
             if (atendeRecorrencia || excecao) {
                 const exibData = formatarDataBR(dataFoco);
+                const diasSemanaAbreviados = ['dom.', 'seg.', 'ter.', 'qua.', 'qui.', 'sex.', 'sáb.'];
+                const exibDiaSemana = diasSemanaAbreviados[dataFoco.getDay()];
                 const exibHora = excecao ? (excecao.hora ? excecao.hora.substring(0, 5) : '--:--') : (horaPadrao ? horaPadrao.substring(0, 5) : '--:--');
                 const exibValor = excecao && excecao.valor !== undefined ? excecao.valor : valor;
                 const exibMod = excecao && excecao.modalidade ? excecao.modalidade : modalidade;
@@ -1778,7 +1780,7 @@ async function renderizarSidebarCalendarioPaciente(pacienteId, manterPeriodoAtua
 
                 htmlProxe += `
                     <div class="container-linha-bloco ${classeStatusSide}">
-                        <div class="linha-data">${exibData} às ${exibHora} - ${exibMod}</div>
+                        <div class="linha-data">${exibData} - ${exibDiaSemana} às ${exibHora} - ${exibMod}</div>
                         <div class="linha-status">Status: <b>${exibStatus}</b> | R$ ${Number(exibValor).toFixed(2)}${pago ? ' | Pago' : ''}</div>
                         ${textoContasPagar}
                         <button class="btn-tres-pontos-sidebar" title="Editar esta data" onclick="abrirEditorDiretoAgenda('${pacienteId}', '${dataISO}', '${exibHora}', '${exibMod}', '${Number(exibValor)}', '${exibStatus}')">...</button>
