@@ -1644,7 +1644,10 @@ function configurarPeriodoPadraoSidebar() {
 
     const periodoMesAtual = obterPeriodoMesAtual();
     inicioInput.value = formatarDataISO(periodoMesAtual.inicio);
-    fimInput.value = formatarDataISO(periodoMesAtual.fim);
+    // A projeção inicia no mês corrente e já inclui todo o mês seguinte.
+    const hoje = new Date();
+    const fimMesSeguinte = new Date(hoje.getFullYear(), hoje.getMonth() + 2, 0);
+    fimInput.value = formatarDataISO(fimMesSeguinte);
 }
 
 function obterPeriodoConsultaPaciente() {
@@ -2571,7 +2574,11 @@ function criarPdfCompletoCompartilhavel(dados, logo) {
             comandos.push('0.78 0.82 0.87 RG', '0.4 w', `40 ${y - 7} m 802 ${y - 7} l S`);
         });
         definirCorTexto();
-        if (indicePagina === paginasIds.length - 1) escrever('F2', 11, 650, 54, `Total: ${formatarMoeda(dados.total)}`);
+        if (indicePagina === paginasIds.length - 1) {
+            // Mantém o total logo após a última linha da tabela, como no relatório web.
+            const yTotal = Math.max(54, 437 - (pagina.registros.length * 22) - 16);
+            escrever('F2', 11, 650, yTotal, `Total: ${formatarMoeda(dados.total)}`);
+        }
         escrever('F1', 7, 745, 24, `Página ${indicePagina + 1} de ${paginasIds.length}`);
         const bytesFluxo = codificador.encode(comandos.join('\n'));
         const recursoLogo = logo ? `/XObject << /Logo ${idLogo} 0 R >>` : '';
