@@ -347,8 +347,22 @@ function contasNoPeriodo(tipo, inicio, fim) {
     return contasPontuais.concat(contasRecorrentes).sort((a, b) => a.data.localeCompare(b.data));
 }
 
+function normalizarNomePacienteFinanceiro(nome) {
+    return String(nome || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toLocaleLowerCase('pt-BR');
+}
+
+function obterPacienteIdDaOrigemFinanceira(conta) {
+    const origem = String(conta?.origem || '');
+    return origem.match(/^ocorrencia_(\d+)_\d{4}-\d{2}-\d{2}$/)?.[1] || '';
+}
+
 // Contas manuais sem paciente continuam sendo registros independentes. Já as contas
 // vinculadas a uma pessoa só entram no financeiro enquanto esse paciente existir e estiver ativo.
+// A consulta por nome cobre lançamentos antigos que foram salvos antes do paciente_id existir.
 function filtrarContasDePacientesAtivos(contas, baseFinanceira) {
     if (!baseFinanceira?.pacientes) return contas;
     const pacientesAtivos = new Set(
@@ -356,9 +370,19 @@ function filtrarContasDePacientesAtivos(contas, baseFinanceira) {
             .filter(paciente => paciente.status !== 'Inativo')
             .map(paciente => String(paciente.id))
     );
+    const nomesPacientesAtivos = new Set(
+        baseFinanceira.pacientes
+            .filter(paciente => paciente.status !== 'Inativo')
+            .map(paciente => normalizarNomePacienteFinanceiro(paciente.nome))
+            .filter(Boolean)
+    );
     return contas.filter(conta => {
-        const pacienteId = conta?.pacienteId == null || conta.pacienteId === '' ? '' : String(conta.pacienteId);
-        return !pacienteId || pacientesAtivos.has(pacienteId);
+        const pacienteIdInformado = conta?.pacienteId == null || conta.pacienteId === '' ? '' : String(conta.pacienteId);
+        const pacienteId = pacienteIdInformado || obterPacienteIdDaOrigemFinanceira(conta);
+        if (pacienteId) return pacientesAtivos.has(pacienteId);
+
+        const nomePaciente = normalizarNomePacienteFinanceiro(conta?.pacienteNome);
+        return !nomePaciente || nomesPacientesAtivos.has(nomePaciente);
     });
 }
 
