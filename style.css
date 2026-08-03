@@ -1751,11 +1751,12 @@ body.dark-theme .box-escopo-conta small {
     }
 
     .semana-titulo {
-        padding: 17px 8px;
-        font-size: clamp(0.62rem, 2.9vw, 0.82rem);
+        padding: 18px 8px;
+        font-size: clamp(0.7rem, 3.5vw, 0.94rem);
         line-height: 1.2;
-        letter-spacing: -0.035em;
+        letter-spacing: -0.045em;
         white-space: nowrap;
+        font-weight: 800;
     }
 
     .agenda-mobile-dia {
