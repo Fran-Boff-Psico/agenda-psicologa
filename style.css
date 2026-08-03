@@ -411,11 +411,16 @@ body.tela-abertura-ativa {
 
 .dashboard-indicadores {
     display: grid;
-    grid-template-columns: repeat(5, minmax(150px, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     align-items: stretch;
     gap: 14px;
     margin: 0 auto 24px;
     max-width: 1420px;
+}
+
+.indicador-ativos-mobile,
+.lista-contas-mobile {
+    display: none;
 }
 
 .dashboard-indicadores .card-ind {
@@ -1028,7 +1033,8 @@ body.tela-abertura-ativa {
     display: none;
     justify-content: center;
     align-items: center;
-    z-index: 100;
+    /* O modal deve ficar acima da barra fixa do celular para não esconder o título. */
+    z-index: 200;
 }
 
 .modal-box {
@@ -1459,6 +1465,27 @@ body.dark-theme .box-escopo-conta small {
         display: none;
     }
 
+    .indicador-ativos-mobile {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin: 0 0 14px;
+        padding: 9px 13px;
+        border: 2px solid var(--border-color);
+        border-radius: 9px;
+        background: var(--card-bg);
+        color: var(--text-dark);
+        font-size: 0.82rem;
+        font-weight: 700;
+    }
+
+    .indicador-ativos-mobile strong {
+        min-width: 30px;
+        color: var(--text-dark);
+        font-size: 1.12rem;
+        text-align: right;
+    }
+
     .cards-indicadores {
         gap: 10px;
         margin-bottom: 18px;
@@ -1575,6 +1602,86 @@ body.dark-theme .box-escopo-conta small {
         content: none;
     }
 
+    /* Nas telas financeiras o celular usa cards por paciente; a tabela continua no computador. */
+    #listaContasReceber > .tabela-relatorio,
+    #listaContasPagar > .tabela-relatorio {
+        display: none;
+    }
+
+    .lista-contas-mobile {
+        display: grid;
+        gap: 12px;
+    }
+
+    .card-conta-mobile {
+        overflow: hidden;
+        border: 2px solid var(--border-color);
+        border-radius: 10px;
+        background: var(--card-bg);
+    }
+
+    .card-conta-mobile > h4 {
+        margin: 0;
+        padding: 11px 13px;
+        border-bottom: 1px solid var(--border-color);
+        background: var(--bg-color);
+        color: var(--text-dark);
+        font-size: 0.95rem;
+        font-weight: 800;
+    }
+
+    .item-conta-mobile {
+        padding: 11px 13px;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .item-conta-mobile:last-child {
+        border-bottom: 0;
+    }
+
+    .item-conta-mobile-topo,
+    .item-conta-mobile-linha {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+    }
+
+    .item-conta-mobile-topo {
+        margin-bottom: 7px;
+        color: var(--text-dark);
+        font-size: 0.88rem;
+    }
+
+    .item-conta-mobile-topo strong:last-child {
+        white-space: nowrap;
+    }
+
+    .item-conta-mobile-linha {
+        min-height: 27px;
+        padding: 3px 0;
+        border-top: 1px solid var(--border-color);
+        font-size: 0.8rem;
+    }
+
+    .item-conta-mobile-linha > span:first-child {
+        color: #64748b;
+        font-weight: 700;
+    }
+
+    .item-conta-mobile-linha > span:last-child,
+    .item-conta-mobile-linha > label {
+        max-width: 63%;
+        color: var(--text-main);
+        text-align: right;
+        overflow-wrap: anywhere;
+    }
+
+    .item-conta-mobile-acoes {
+        justify-content: flex-end;
+        padding-top: 9px;
+    }
+
     .financeiro-cabecalho {
         align-items: stretch;
         flex-direction: column;
@@ -1644,9 +1751,11 @@ body.dark-theme .box-escopo-conta small {
     }
 
     .semana-titulo {
-        padding: 20px 18px;
-        font-size: 1.12rem;
-        line-height: 1.35;
+        padding: 17px 8px;
+        font-size: clamp(0.62rem, 2.9vw, 0.82rem);
+        line-height: 1.2;
+        letter-spacing: -0.035em;
+        white-space: nowrap;
     }
 
     .agenda-mobile-dia {
