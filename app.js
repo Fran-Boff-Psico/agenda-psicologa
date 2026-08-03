@@ -923,11 +923,13 @@ window.abrirEditorDiretoAgenda = function(pacienteId, dataISO, hora, modalidade,
         if (novaFreq !== document.getElementById('frequenciaAgendamento')?.dataset.original) escopoAtendimento = 'demais';
         if (!validarContaPagarOcorrencia()) return;
 
-        await executarSalvamentoPorEscopo(pacienteId, dataISO, novaData, novaHora, novaMod, novoVal, novoStat, escopoAtendimento, novaFreq);
+        const agendamentoSalvo = await executarSalvamentoPorEscopo(pacienteId, dataISO, novaData, novaHora, novaMod, novoVal, novoStat, escopoAtendimento, novaFreq);
+        if (!agendamentoSalvo) return;
         await salvarStatusPagamentoOcorrencia(pacienteId, novaData);
         await salvarContaPagarOcorrencia(pacienteId, dataISO, novaData, escopoContaPagar, novaFreq);
         if (novaData !== dataISO) {
             await removerPagamentoAtendimentoNoBanco(pacienteId, dataISO);
+            incluirDataNoPeriodoSidebar(novaData);
         }
         fecharModalAgendamento();
         carregarAgendaSemanal();
@@ -1699,6 +1701,20 @@ function obterPeriodoConsultaPaciente() {
     return { dataInicio, dataFim };
 }
 
+// Ao reagendar para fora do período que já estava aberto no perfil, mantém a nova
+// data visível imediatamente, em vez de exibir somente a antiga exceção cancelada.
+function incluirDataNoPeriodoSidebar(dataISO) {
+    const data = criarDataLocal(dataISO);
+    const inicioInput = document.getElementById('periodoConsultaInicio');
+    const fimInput = document.getElementById('periodoConsultaFim');
+    if (!data || !inicioInput || !fimInput) return;
+
+    const inicioAtual = criarDataLocal(inicioInput.value);
+    const fimAtual = criarDataLocal(fimInput.value);
+    if (!inicioAtual || data < inicioAtual) inicioInput.value = formatarDataISO(data);
+    if (!fimAtual || data > fimAtual) fimInput.value = formatarDataISO(data);
+}
+
 async function renderizarSidebarCalendarioPaciente(pacienteId, manterPeriodoAtual = false) {
     const sidebar = document.getElementById('sidebar-agenda-paciente');
     const resumoBox = document.getElementById('info-plano-resumo');
@@ -1762,6 +1778,10 @@ async function renderizarSidebarCalendarioPaciente(pacienteId, manterPeriodoAtua
             const atendeRecorrencia = checarDataCorrespondeAoPlano(new Date(dataFoco), dataInicioStr, diaSemana, frequencia);
             const excecao = agendamentos.find(a => a.data === dataISO);
 
+            // O cancelamento criado internamente ao reagendar serve apenas para bloquear
+            // a recorrência na data antiga. Ele não deve aparecer como uma sessão cancelada.
+            if (excecao?.status === 'Cancelado') continue;
+
             if (atendeRecorrencia || excecao) {
                 const exibData = formatarDataBR(dataFoco);
                 const exibHora = excecao ? (excecao.hora ? excecao.hora.substring(0, 5) : '--:--') : (horaPadrao ? horaPadrao.substring(0, 5) : '--:--');
@@ -1798,7 +1818,7 @@ async function renderizarSidebarCalendarioPaciente(pacienteId, manterPeriodoAtua
 }
 
 async function executarSalvamentoPorEscopo(pacienteId, dataOriginalISO, novaDataISO, novaHora, novaMod, novoVal, statusSessao, escopo, novaFreq) {
-    if (!bancoDados) return;
+    if (!bancoDados) return false;
     try {
         if (escopo === 'somente') {
             const payload = { paciente_id: pacienteId, data: novaDataISO, hora: novaHora, modalidade: novaMod, valor: novoVal, status: statusSessao };
@@ -1839,9 +1859,11 @@ async function executarSalvamentoPorEscopo(pacienteId, dataOriginalISO, novaData
             await bancoDados.from('agendamentos').delete().eq('paciente_id', pacienteId).gte('data', dataOriginalISO);
         }
         alert('Modificações salvas com sucesso!');
+        return true;
     } catch (e) {
         console.error(e);
         alert('Erro ao salvar modificações.');
+        return false;
     }
 }
 
