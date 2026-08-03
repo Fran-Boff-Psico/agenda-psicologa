@@ -1270,12 +1270,13 @@ body.dark-theme .box-escopo-conta small {
 
 .grid-pacientes {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 20px;
+    grid-template-columns: repeat(auto-fill, minmax(210px, 250px));
+    justify-content: start;
+    gap: 14px;
 }
 
 .cardPaciente {
-    padding: 20px;
+    padding: 14px;
 }
 
 .btn-editar {
