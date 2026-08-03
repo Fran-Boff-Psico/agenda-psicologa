@@ -1537,7 +1537,6 @@ function alternarDitadoProntuario() {
         ) return atual;
         if (novoNormalizado.startsWith(atualNormalizado)) return novo;
 
-        const palavrasAtuais = atual.split(/\s+/);
         const palavrasNovas = novo.split(/\s+/);
         const palavrasAtuaisNormalizadas = normalizarTextoDitado(atual).split(' ').filter(Boolean);
         const palavrasNovasNormalizadas = normalizarTextoDitado(novo).split(' ').filter(Boolean);
@@ -1555,26 +1554,17 @@ function alternarDitadoProntuario() {
             return `${atual} ${palavrasNovas.slice(sobreposicao).join(' ')}`.replace(/\s+/g, ' ').trim();
         }
 
-        let prefixoEmComum = 0;
-        while (
-            prefixoEmComum < palavrasAtuaisNormalizadas.length &&
-            prefixoEmComum < palavrasNovasNormalizadas.length &&
-            palavrasAtuaisNormalizadas[prefixoEmComum] === palavrasNovasNormalizadas[prefixoEmComum]
-        ) {
-            prefixoEmComum++;
-        }
-        // Um resultado final corrigido costuma repetir o início e trocar o final.
-        // Substituímos o trecho anterior para não duplicar a frase no prontuário.
-        if (prefixoEmComum >= 2) return novo;
         return `${atual} ${palavrasNovas.slice(sobreposicao).join(' ')}`.replace(/\s+/g, ' ').trim();
     };
 
     const textoBase = campoTexto.value.trim();
     let textoConfirmado = '';
+    let textoProvisorio = '';
+    let reinicioAgendado = false;
     ditadoProntuarioAtivo = true;
 
     const montarTextoDitado = () => {
-        campoTexto.value = [textoBase, textoConfirmado]
+        campoTexto.value = [textoBase, textoConfirmado, textoProvisorio]
             .filter(Boolean)
             .join(' ')
             .replace(/\s+/g, ' ')
@@ -1583,29 +1573,40 @@ function alternarDitadoProntuario() {
 
     const iniciarReconhecimento = () => {
         if (!ditadoProntuarioAtivo) return;
+        reinicioAgendado = false;
         const reconhecimento = new APIReconhecimento();
         reconhecimento.lang = 'pt-BR';
-        // O modo contínuo do Web Speech costuma duplicar resultados provisórios no Chrome móvel.
-        // Finalizamos cada trecho e iniciamos outro automaticamente enquanto o usuário desejar ditar.
-        reconhecimento.continuous = false;
-        reconhecimento.interimResults = false;
+        // A escuta contínua evita perder o começo da próxima frase após uma pausa.
+        // Os resultados provisórios só são mostrados: apenas os finais entram no texto definitivo.
+        reconhecimento.continuous = true;
+        reconhecimento.interimResults = true;
         reconhecimento.maxAlternatives = 1;
         reconhecimentoProntuario = reconhecimento;
-        const resultadosFinaisDoCiclo = new Map();
+        const resultadosFinaisDoCiclo = new Set();
 
         reconhecimento.onstart = () => {
             if (ditadoProntuarioAtivo) botao.innerText = '⏹️ Encerrar ditado';
         };
         reconhecimento.onresult = evento => {
+            let ultimoResultadoProvisorio = '';
             for (let i = evento.resultIndex; i < evento.results.length; i++) {
-                if (!evento.results[i].isFinal) continue;
                 const texto = String(evento.results[i][0]?.transcript || '').replace(/\s+/g, ' ').trim();
                 if (!texto) continue;
                 const assinatura = normalizarTextoDitado(texto);
-                if (!assinatura || resultadosFinaisDoCiclo.get(i) === assinatura) continue;
-                resultadosFinaisDoCiclo.set(i, assinatura);
+                if (!assinatura) continue;
+
+                if (!evento.results[i].isFinal) {
+                    ultimoResultadoProvisorio = removerEcoInterno(texto);
+                    continue;
+                }
+
+                const identificador = `${i}:${assinatura}`;
+                if (resultadosFinaisDoCiclo.has(identificador)) continue;
+                resultadosFinaisDoCiclo.add(identificador);
                 textoConfirmado = juntarTrechoFinal(textoConfirmado, texto);
+                textoProvisorio = '';
             }
+            if (ultimoResultadoProvisorio) textoProvisorio = ultimoResultadoProvisorio;
             montarTextoDitado();
         };
         reconhecimento.onerror = evento => {
@@ -1614,22 +1615,38 @@ function alternarDitadoProntuario() {
                 reconhecimentoProntuario = null;
                 botao.innerText = '🎙️ Iniciar ditado';
                 alert('Não foi possível acessar o microfone. Autorize o uso do microfone no navegador e tente novamente.');
+            } else if (evento.error === 'audio-capture') {
+                ditadoProntuarioAtivo = false;
+                reconhecimentoProntuario = null;
+                botao.innerText = '🎙️ Iniciar ditado';
+                alert('Não foi possível usar o microfone. Feche outros aplicativos que possam estar usando o microfone e tente novamente.');
+            } else if (evento.error === 'network' && ditadoProntuarioAtivo) {
+                botao.innerText = '🎙️ Reconectando o ditado…';
             }
         };
         reconhecimento.onend = () => {
             if (reconhecimentoProntuario === reconhecimento) reconhecimentoProntuario = null;
+            textoProvisorio = '';
+            montarTextoDitado();
             if (!ditadoProntuarioAtivo) {
                 botao.innerText = '🎙️ Iniciar ditado';
                 return;
             }
-            // O Chrome encerra o trecho após fala ou silêncio. Mantemos o ditado
-            // ativo para o usuário e criamos a próxima escuta automaticamente.
-            window.setTimeout(iniciarReconhecimento, 250);
+            // Alguns celulares encerram a escuta após silêncio. Reiniciamos sem
+            // encerrar o ditado para o usuário, preservando as frases já reconhecidas.
+            if (!reinicioAgendado) {
+                reinicioAgendado = true;
+                botao.innerText = '🎙️ Reconectando o ditado…';
+                window.setTimeout(iniciarReconhecimento, 450);
+            }
         };
         try {
             reconhecimento.start();
         } catch (erro) {
-            if (ditadoProntuarioAtivo) window.setTimeout(iniciarReconhecimento, 500);
+            if (ditadoProntuarioAtivo && !reinicioAgendado) {
+                reinicioAgendado = true;
+                window.setTimeout(iniciarReconhecimento, 700);
+            }
         }
     };
 
