@@ -435,6 +435,14 @@ function formatarMoeda(valor) {
     return Number(valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
+function converterTextoMoedaParaNumero(valor) {
+    const texto = String(valor ?? '').replace(/[^0-9,.-]/g, '');
+    const numeroNormalizado = texto.includes(',')
+        ? texto.replace(/\./g, '').replace(',', '.')
+        : texto;
+    return Number(numeroNormalizado) || 0;
+}
+
 function escaparHTML(texto) {
     return String(texto ?? '').replace(/[&<>"']/g, caractere => ({
         '&': '&amp;',
@@ -646,6 +654,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btnSalvarConfiguracoes')?.addEventListener('click', salvarConfiguracoes);
     document.getElementById('btnAplicarPeriodoPaciente')?.addEventListener('click', () => renderizarSidebarCalendarioPaciente(idPacienteEditando, true));
     document.getElementById('btnExportarRelatorio')?.addEventListener('click', exportarRelatorioFinanceiro);
+    document.getElementById('btnExportarExcelRelatorio')?.addEventListener('click', exportarRelatorioExcel);
     ['tipoRelatorio', 'filtroPacienteRelatorio', 'filtroPagamentoRelatorio', 'dataInicioRelatorio', 'dataFimRelatorio'].forEach(campoId => {
         document.getElementById(campoId)?.addEventListener('change', gerarRelatorioFinanceiro);
     });
@@ -811,6 +820,27 @@ async function carregarAgendaSemanal() {
                         || String(primeiro.nome || '').localeCompare(String(segundo.nome || ''), 'pt-BR', { sensitivity: 'base' });
                 });
 
+                // Alerta os dois compromissos quando houver menos de 50 minutos
+                // entre eles no mesmo dia. Em sequência, todos os envolvidos são marcados.
+                const minutosDoHorario = horario => {
+                    if (!/^\d{2}:\d{2}$/.test(horario || '')) return null;
+                    const [hora, minuto] = horario.split(':').map(Number);
+                    return (hora * 60) + minuto;
+                };
+                itensDoDia.forEach((compromisso, indice) => {
+                    const minutosAtuais = minutosDoHorario(compromisso.hora);
+                    if (minutosAtuais === null) return;
+                    for (let proximoIndice = indice + 1; proximoIndice < itensDoDia.length; proximoIndice++) {
+                        const proximo = itensDoDia[proximoIndice];
+                        const minutosProximos = minutosDoHorario(proximo.hora);
+                        if (minutosProximos === null) continue;
+                        const intervalo = minutosProximos - minutosAtuais;
+                        if (intervalo >= 50) break;
+                        compromisso.alertaIntervaloCurto = true;
+                        proximo.alertaIntervaloCurto = true;
+                    }
+                });
+
                 dadosSemanaCorrente.push({
                     dataISO: dataISOChave,
                     itens: itensDoDia,
@@ -840,9 +870,10 @@ async function carregarAgendaSemanal() {
                     const compromisso = dia.itens[r];
                     if (compromisso) {
                         const classeStatus = MAPA_CLASSES_STATUS[compromisso.status] || 'status-agendado';
+                        const classeAlerta = compromisso.alertaIntervaloCurto ? 'alerta-intervalo-curto' : '';
 
                         htmlSemanas += `
-                            <div class="card-compromisso ${classeStatus}">
+                            <div class="card-compromisso ${classeStatus} ${classeAlerta}">
                                 <div class="card-paciente-nome">${compromisso.nome}</div>
                                 <div class="card-paciente-hora">${compromisso.hora} - ${compromisso.modalidade}</div>
                                 ${compromisso.status !== 'Agendado' ? `<div class="card-paciente-status-badge"><span>${compromisso.status}</span></div>` : ''}
@@ -865,7 +896,8 @@ async function carregarAgendaSemanal() {
                 } else {
                     dia.itens.forEach(compromisso => {
                         const classeStatus = MAPA_CLASSES_STATUS[compromisso.status] || 'status-agendado';
-                        htmlSemanas += `<div class="card-compromisso ${classeStatus}"><div class="card-paciente-nome">${compromisso.nome}</div><div class="card-paciente-hora">${compromisso.hora} - ${compromisso.modalidade}</div>${compromisso.status !== 'Agendado' ? `<div class="card-paciente-status-badge"><span>${compromisso.status}</span></div>` : ''}<button class="btn-tres-pontos-agenda" title="Editar esta data" onclick="abrirEditorDiretoAgenda('${compromisso.pacienteId}', '${dia.dataISO}', '${compromisso.hora}', '${compromisso.modalidade}', '${compromisso.valor}', '${compromisso.status}')">...</button></div>`;
+                        const classeAlerta = compromisso.alertaIntervaloCurto ? 'alerta-intervalo-curto' : '';
+                        htmlSemanas += `<div class="card-compromisso ${classeStatus} ${classeAlerta}"><div class="card-paciente-nome">${compromisso.nome}</div><div class="card-paciente-hora">${compromisso.hora} - ${compromisso.modalidade}</div>${compromisso.status !== 'Agendado' ? `<div class="card-paciente-status-badge"><span>${compromisso.status}</span></div>` : ''}<button class="btn-tres-pontos-agenda" title="Editar esta data" onclick="abrirEditorDiretoAgenda('${compromisso.pacienteId}', '${dia.dataISO}', '${compromisso.hora}', '${compromisso.modalidade}', '${compromisso.valor}', '${compromisso.status}')">...</button></div>`;
                     });
                 }
                 htmlSemanas += `</section>`;
@@ -2433,7 +2465,7 @@ function montarTextoParaCompartilharRelatorio() {
     const linhas = Array.from(tabela.querySelectorAll('tbody tr')).map(linha => Array.from(linha.cells).slice(0, 7).map(celula => celula.innerText.trim()).join(' | '));
     const total = Array.from(tabela.querySelectorAll('tbody tr')).reduce((soma, linha) => {
         const textoValor = linha.cells[6]?.innerText || '0';
-        return soma + Number(textoValor.replace(/[^0-9,]/g, '').replace(',', '.'));
+        return soma + converterTextoMoedaParaNumero(textoValor);
     }, 0);
     return `Demonstrativo Financeiro de Atendimentos\nPaciente: ${paciente}\nPeríodo: ${inicioBR} a ${fimBR}\n\n${linhas.join('\n')}\n\nTotal: ${formatarMoeda(total)}`;
 }
@@ -2499,7 +2531,7 @@ function coletarDadosPdfCompartilhavel() {
         const celulas = Array.from(linha.cells).slice(0, 7).map(celula => celula.innerText.trim());
         return { data: celulas[0] || '', paciente: celulas[1] || '', hora: celulas[2] || '', modalidade: celulas[3] || '', status: celulas[4] || '', pagamento: celulas[5] || '', valor: celulas[6] || '' };
     });
-    const total = registros.reduce((soma, registro) => soma + Number((registro.valor || '0').replace(/[^0-9,]/g, '').replace(',', '.')), 0);
+    const total = registros.reduce((soma, registro) => soma + converterTextoMoedaParaNumero(registro.valor), 0);
     const texto = `Demonstrativo Financeiro de Atendimentos\nPaciente: ${paciente}\nPeríodo: ${inicioBR} a ${fimBR}\n\n${registros.map(registro => [registro.data, registro.paciente, registro.hora, registro.modalidade, registro.status, registro.pagamento, registro.valor].join(' | ')).join('\n')}\n\nTotal: ${formatarMoeda(total)}`;
     return { paciente, inicioBR, fimBR, registros, total, texto };
 }
@@ -2667,6 +2699,140 @@ async function exportarRelatorioFinanceiro() {
     gerarPdfRelatorio();
 }
 
+function escaparXmlExcel(valor) {
+    return String(valor ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+}
+
+function calcularCrc32(bytes) {
+    let crc = 0xffffffff;
+    for (let indice = 0; indice < bytes.length; indice++) {
+        crc ^= bytes[indice];
+        for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+    return (crc ^ 0xffffffff) >>> 0;
+}
+
+function escreverNumeroZip(bytes, posicao, valor, tamanho) {
+    for (let indice = 0; indice < tamanho; indice++) bytes[posicao + indice] = (valor >>> (indice * 8)) & 0xff;
+}
+
+function criarZipSimples(arquivos) {
+    const codificador = new TextEncoder();
+    const locais = [];
+    const diretorio = [];
+    let deslocamento = 0;
+
+    arquivos.forEach(arquivo => {
+        const nome = codificador.encode(arquivo.nome);
+        const conteudo = typeof arquivo.conteudo === 'string' ? codificador.encode(arquivo.conteudo) : arquivo.conteudo;
+        const crc = calcularCrc32(conteudo);
+        const local = new Uint8Array(30 + nome.length + conteudo.length);
+        escreverNumeroZip(local, 0, 0x04034b50, 4);
+        escreverNumeroZip(local, 4, 20, 2);
+        escreverNumeroZip(local, 8, 0, 2);
+        escreverNumeroZip(local, 14, crc, 4);
+        escreverNumeroZip(local, 18, conteudo.length, 4);
+        escreverNumeroZip(local, 22, conteudo.length, 4);
+        escreverNumeroZip(local, 26, nome.length, 2);
+        local.set(nome, 30);
+        local.set(conteudo, 30 + nome.length);
+        locais.push(local);
+
+        const central = new Uint8Array(46 + nome.length);
+        escreverNumeroZip(central, 0, 0x02014b50, 4);
+        escreverNumeroZip(central, 4, 20, 2);
+        escreverNumeroZip(central, 6, 20, 2);
+        escreverNumeroZip(central, 10, 0, 2);
+        escreverNumeroZip(central, 16, crc, 4);
+        escreverNumeroZip(central, 20, conteudo.length, 4);
+        escreverNumeroZip(central, 24, conteudo.length, 4);
+        escreverNumeroZip(central, 28, nome.length, 2);
+        escreverNumeroZip(central, 42, deslocamento, 4);
+        central.set(nome, 46);
+        diretorio.push(central);
+        deslocamento += local.length;
+    });
+
+    const tamanhoDiretorio = diretorio.reduce((total, item) => total + item.length, 0);
+    const finalizacao = new Uint8Array(22);
+    escreverNumeroZip(finalizacao, 0, 0x06054b50, 4);
+    escreverNumeroZip(finalizacao, 8, arquivos.length, 2);
+    escreverNumeroZip(finalizacao, 10, arquivos.length, 2);
+    escreverNumeroZip(finalizacao, 12, tamanhoDiretorio, 4);
+    escreverNumeroZip(finalizacao, 16, deslocamento, 4);
+    const resultado = new Uint8Array(deslocamento + tamanhoDiretorio + finalizacao.length);
+    let posicao = 0;
+    locais.concat(diretorio, [finalizacao]).forEach(item => {
+        resultado.set(item, posicao);
+        posicao += item.length;
+    });
+    return resultado;
+}
+
+function colunaExcel(indice) {
+    let numero = indice;
+    let resultado = '';
+    while (numero > 0) {
+        const resto = (numero - 1) % 26;
+        resultado = String.fromCharCode(65 + resto) + resultado;
+        numero = Math.floor((numero - 1) / 26);
+    }
+    return resultado;
+}
+
+function criarArquivoExcelXlsx(dados) {
+    const cabecalhos = ['Data', 'Paciente', 'Hora', 'Modalidade', 'Status', 'Pagamento', 'Valor'];
+    const celulaTexto = (referencia, valor, estilo = 0) => `<c r="${referencia}" t="inlineStr" s="${estilo}"><is><t xml:space="preserve">${escaparXmlExcel(valor)}</t></is></c>`;
+    const celulaNumero = (referencia, valor, estilo = 3) => `<c r="${referencia}" s="${estilo}"><v>${Number(valor || 0).toFixed(2)}</v></c>`;
+    const linhas = [];
+    linhas.push(`<row r="1" ht="28" customHeight="1">${celulaTexto('A1', 'Demonstrativo Financeiro de Atendimentos', 1)}</row>`);
+    linhas.push(`<row r="2">${celulaTexto('A2', `Paciente: ${dados.paciente}`)}</row>`);
+    linhas.push(`<row r="3">${celulaTexto('A3', `Período: ${dados.inicioBR} a ${dados.fimBR}`)}</row>`);
+    linhas.push('<row r="4"/>');
+    linhas.push(`<row r="5">${cabecalhos.map((cabecalho, indice) => celulaTexto(`${colunaExcel(indice + 1)}5`, cabecalho, 2)).join('')}</row>`);
+    dados.registros.forEach((registro, indice) => {
+        const linha = indice + 6;
+        linhas.push(`<row r="${linha}">${celulaTexto(`A${linha}`, registro.data)}${celulaTexto(`B${linha}`, registro.paciente)}${celulaTexto(`C${linha}`, registro.hora)}${celulaTexto(`D${linha}`, registro.modalidade)}${celulaTexto(`E${linha}`, registro.status)}${celulaTexto(`F${linha}`, registro.pagamento)}${celulaNumero(`G${linha}`, converterTextoMoedaParaNumero(registro.valor))}</row>`);
+    });
+    const linhaTotal = dados.registros.length + 6;
+    linhas.push(`<row r="${linhaTotal}">${celulaTexto(`F${linhaTotal}`, 'Total', 4)}${celulaNumero(`G${linhaTotal}`, dados.total, 4)}</row>`);
+
+    const planilha = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cols><col min="1" max="1" width="13" customWidth="1"/><col min="2" max="2" width="28" customWidth="1"/><col min="3" max="3" width="10" customWidth="1"/><col min="4" max="4" width="17" customWidth="1"/><col min="5" max="5" width="16" customWidth="1"/><col min="6" max="6" width="18" customWidth="1"/><col min="7" max="7" width="14" customWidth="1"/></cols><sheetData>${linhas.join('')}</sheetData><mergeCells count="3"><mergeCell ref="A1:G1"/><mergeCell ref="A2:G2"/><mergeCell ref="A3:G3"/></mergeCells></worksheet>`;
+    const estilos = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="&quot;R$&quot; #,##0.00"/></numFmts><fonts count="3"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="16"/><color rgb="FF172033"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FF172033"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEAF0F8"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="center"/></xf><xf numFmtId="0" fontId="2" fillId="2" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="center"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="164" fontId="2" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs></styleSheet>`;
+    const arquivos = [
+        { nome: '[Content_Types].xml', conteudo: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>' },
+        { nome: '_rels/.rels', conteudo: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>' },
+        { nome: 'xl/workbook.xml', conteudo: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Relatório financeiro" sheetId="1" r:id="rId1"/></sheets></workbook>' },
+        { nome: 'xl/_rels/workbook.xml.rels', conteudo: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>' },
+        { nome: 'xl/styles.xml', conteudo: estilos },
+        { nome: 'xl/worksheets/sheet1.xml', conteudo: planilha }
+    ];
+    return new Blob([criarZipSimples(arquivos)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+
+function exportarRelatorioExcel() {
+    const dados = coletarDadosPdfCompartilhavel();
+    if (!dados) {
+        alert('Gere o relatório antes de exportar para Excel.');
+        return;
+    }
+
+    const arquivo = criarArquivoExcelXlsx(dados);
+    const url = URL.createObjectURL(arquivo);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'demonstrativo-financeiro-atendimentos.xlsx';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function gerarPdfRelatorio() {
     const resultado = document.getElementById('resultadoRelatorio');
     const inicio = document.getElementById('dataInicioRelatorio')?.value;
@@ -2688,7 +2854,7 @@ function gerarPdfRelatorio() {
     const tabela = resultado.querySelector('table');
     const total = Array.from(tabela.querySelectorAll('tbody tr')).reduce((soma, linha) => {
         const textoValor = linha.cells[6]?.innerText || '0';
-        return soma + Number(textoValor.replace(/[^0-9,]/g, '').replace(',', '.'));
+        return soma + converterTextoMoedaParaNumero(textoValor);
     }, 0);
     const inicioBR = inicio ? formatarDataBR(criarDataLocal(inicio)) : '--';
     const fimBR = fim ? formatarDataBR(criarDataLocal(fim)) : '--';
@@ -2932,7 +3098,10 @@ function aplicarConfiguracoesVisuais() {
     const logoAbertura = document.getElementById('logoAbertura');
     const simboloAbertura = document.getElementById('simboloAbertura');
     const imagemExibidaNaAbertura = imagemAberturaUrl || IMAGEM_PADRAO_ABERTURA;
-    if (telaAbertura) telaAbertura.classList.toggle('tela-abertura-com-imagem', Boolean(imagemExibidaNaAbertura));
+    if (telaAbertura) {
+        telaAbertura.classList.toggle('tela-abertura-com-imagem', Boolean(imagemExibidaNaAbertura));
+        telaAbertura.dataset.imagemAberturaPadrao = imagemAberturaUrl ? 'false' : 'true';
+    }
     if (logoAbertura) {
         if (imagemExibidaNaAbertura) {
             const usarImagemPadraoDeAbertura = () => {
@@ -2941,7 +3110,10 @@ function aplicarConfiguracoesVisuais() {
                 logoAbertura.alt = 'Imagem padrão de abertura da clínica';
                 logoAbertura.style.display = 'block';
                 if (simboloAbertura) simboloAbertura.style.display = 'none';
-                if (telaAbertura) telaAbertura.classList.add('tela-abertura-com-imagem');
+                if (telaAbertura) {
+                    telaAbertura.classList.add('tela-abertura-com-imagem');
+                    telaAbertura.dataset.imagemAberturaPadrao = 'true';
+                }
             };
 
             logoAbertura.dataset.imagemPadrao = imagemAberturaUrl ? 'false' : 'true';
