@@ -109,6 +109,16 @@ body.tela-abertura-ativa {
     background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent 42%, rgba(0, 0, 0, 0.18));
 }
 
+/* A arte padrão tem fundo escuro: sem luzes ou gradientes ao redor da imagem. */
+.tela-abertura[data-imagem-abertura-padrao="true"] {
+    background: #000;
+}
+
+.tela-abertura[data-imagem-abertura-padrao="true"]::before,
+.tela-abertura[data-imagem-abertura-padrao="true"] .tela-abertura-luz {
+    display: none;
+}
+
 .tela-abertura-luz {
     position: absolute;
     z-index: -1;
@@ -257,8 +267,9 @@ body.tela-abertura-ativa {
 @media (prefers-reduced-motion: reduce) {
     .tela-abertura,
     .tela-abertura-conteudo,
-    .tela-abertura-indicador span {
-        animation: none;
+    .tela-abertura-indicador span,
+    .card-compromisso.alerta-intervalo-curto {
+        animation: none !important;
         transition: none;
     }
 }
@@ -582,6 +593,22 @@ body.tela-abertura-ativa {
     border-color: var(--border-status-cancelado);
 }
 
+@keyframes alerta-intervalo-curto {
+    0%, 100% {
+        border-color: #f97316;
+        box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.42), 0 1px 2px rgba(0, 0, 0, 0.06);
+    }
+    50% {
+        border-color: #fed7aa;
+        box-shadow: 0 0 0 5px rgba(249, 115, 22, 0.48), 0 4px 12px rgba(194, 65, 12, 0.22);
+    }
+}
+
+.card-compromisso.alerta-intervalo-curto {
+    border-color: #f97316 !important;
+    animation: alerta-intervalo-curto 1s ease-in-out infinite;
+}
+
 .card-paciente-nome {
     font-weight: 700;
     color: inherit;
@@ -832,6 +859,19 @@ body.tela-abertura-ativa {
 
 .relatorio-botao-grupo {
     justify-content: flex-end;
+}
+
+.relatorio-botoes-exportacao {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+    width: 100%;
+}
+
+.relatorio-botoes-exportacao button {
+    flex: 1 1 0;
+    width: auto;
+    white-space: nowrap;
 }
 
 .texto-exportar-mobile {
@@ -1787,6 +1827,10 @@ body.dark-theme .box-escopo-conta small {
         border-left: 6px solid #2f8736;
         background: #fff;
         color: #172033;
+    }
+
+    .agenda-mobile .card-compromisso.alerta-intervalo-curto {
+        border-left-color: #f97316 !important;
     }
 
     .agenda-mobile .card-paciente-nome {
