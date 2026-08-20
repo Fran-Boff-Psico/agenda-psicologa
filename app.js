@@ -41,6 +41,7 @@ let pagamentosAtendimentosCache = {};
 let sincronizacaoFinanceiraEmAndamento = null;
 let ultimaSincronizacaoFinanceira = 0;
 let verificacaoFinanceiraIniciada = false;
+let filtroAgendaAtivo = null;
 const canalFinanceiro = typeof BroadcastChannel !== 'undefined'
     ? new BroadcastChannel('agenda-psicologa-financeiro')
     : null;
@@ -509,6 +510,61 @@ function obterPeriodoMesAtual() {
     return { inicio, fim };
 }
 
+function inicioDaSemana(data) {
+    const dataNormalizada = normalizarData(data);
+    const deslocamento = dataNormalizada.getDay() === 0 ? -6 : 1 - dataNormalizada.getDay();
+    return adicionarDias(dataNormalizada, deslocamento);
+}
+
+function obterPeriodoFiltroAgenda() {
+    return filtroAgendaAtivo ? {
+        inicio: criarDataLocal(filtroAgendaAtivo.inicio),
+        fim: criarDataLocal(filtroAgendaAtivo.fim)
+    } : null;
+}
+
+function obterPeriodoFinanceiroDashboard() {
+    return obterPeriodoFiltroAgenda() || obterPeriodoMesAtual();
+}
+
+function montarControlesFiltroAgenda() {
+    const inicio = filtroAgendaAtivo?.inicio || '';
+    const fim = filtroAgendaAtivo?.fim || '';
+    return `
+        <div class="filtros-agenda" aria-label="Consultar período da agenda">
+            <label class="sr-only" for="filtroAgendaInicio">Data inicial da agenda</label>
+            <input id="filtroAgendaInicio" type="date" value="${inicio}" title="Data inicial" onchange="aplicarFiltroAgenda()">
+            <span class="filtros-agenda-separador">a</span>
+            <label class="sr-only" for="filtroAgendaFim">Data final da agenda</label>
+            <input id="filtroAgendaFim" type="date" value="${fim}" title="Data final" onchange="aplicarFiltroAgenda()">
+            <button type="button" class="btn-limpar-filtro-agenda" title="Voltar para a semana atual" aria-label="Voltar para a semana atual" onclick="limparFiltroAgenda()">×</button>
+        </div>
+    `;
+}
+
+function aplicarFiltroAgenda() {
+    const inicio = criarDataLocal(document.getElementById('filtroAgendaInicio')?.value);
+    const fim = criarDataLocal(document.getElementById('filtroAgendaFim')?.value);
+    // A consulta só é aplicada depois que as duas datas forem informadas.
+    if (!inicio || !fim) return;
+
+    const periodoOrdenado = inicio <= fim ? { inicio, fim } : { inicio: fim, fim: inicio };
+    filtroAgendaAtivo = {
+        inicio: formatarDataISO(periodoOrdenado.inicio),
+        fim: formatarDataISO(periodoOrdenado.fim)
+    };
+    carregarAgendaSemanal();
+    atualizarIndicadoresFinanceirosDashboard();
+}
+window.aplicarFiltroAgenda = aplicarFiltroAgenda;
+
+function limparFiltroAgenda() {
+    filtroAgendaAtivo = null;
+    carregarAgendaSemanal();
+    atualizarIndicadoresFinanceirosDashboard();
+}
+window.limparFiltroAgenda = limparFiltroAgenda;
+
 function alternarSubmenuPacientes() {
     const sub = document.getElementById('submenuPacientes');
     if (sub) sub.style.display = (sub.style.display === 'flex') ? 'none' : 'flex';
@@ -801,17 +857,16 @@ async function carregarAgendaSemanal() {
         if (pacientes) pacientes.forEach(p => mapaPacientes[p.id] = p.nome);
 
         const hoje = new Date();
-        const diaSemanaAtual = hoje.getDay();
-        const diffSegunda = diaSemanaAtual === 0 ? -6 : 1 - diaSemanaAtual;
-
-        const segundaCorrente = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
-        segundaCorrente.setDate(segundaCorrente.getDate() + diffSegunda);
+        const periodoFiltro = obterPeriodoFiltroAgenda();
+        const segundaCorrente = inicioDaSemana(periodoFiltro?.inicio || hoje);
+        const domingoFinal = periodoFiltro ? adicionarDias(inicioDaSemana(periodoFiltro.fim), 6) : adicionarDias(segundaCorrente, 34);
+        const totalSemanas = Math.round((domingoFinal.getTime() - segundaCorrente.getTime()) / (7 * 24 * 60 * 60 * 1000)) + 1;
 
         let htmlSemanas = '';
         const nomesDiasSemana = ['Segunda', 'Terca', 'Quarta', 'Quinta', 'Sexta', 'Sabado', 'Domingo'];
         const classesDias = ['dia-seg', 'dia-ter', 'dia-qua', 'dia-qui', 'dia-sex', 'dia-sab', 'dia-dom'];
 
-        for (let s = 0; s < 5; s++) {
+        for (let s = 0; s < totalSemanas; s++) {
             const dataInicioBloco = adicionarDias(segundaCorrente, s * 7);
             const dataFimBloco = adicionarDias(dataInicioBloco, 6);
 
@@ -902,9 +957,13 @@ async function carregarAgendaSemanal() {
                 }
             }
 
+            const controlesFiltro = s === 0 ? montarControlesFiltroAgenda() : '';
             htmlSemanas += `
                 <div class="semana-bloco">
-                    <div class="semana-titulo">Agenda da Semana: ${formatarDataBR(dataInicioBloco)} a ${formatarDataBR(dataFimBloco)}</div>
+                    <div class="semana-titulo ${s === 0 ? 'semana-titulo-com-filtro' : ''}">
+                        <span class="semana-titulo-texto">Agenda da Semana: ${formatarDataBR(dataInicioBloco)} a ${formatarDataBR(dataFimBloco)}</span>
+                        ${controlesFiltro}
+                    </div>
                     <div class="agenda-desktop"><div class="grade-agenda">
             `;
 
@@ -2077,18 +2136,41 @@ function atualizarCardsFinanceiros(totais, pagar, ids = {}) {
     if (document.getElementById(ids.saldo || 'saldoMesAtual')) document.getElementById(ids.saldo || 'saldoMesAtual').innerText = formatarMoeda(saldo);
 }
 
+function atualizarTitulosDashboardPorPeriodo() {
+    const titulosPadrao = {
+        tituloPrevisaoDashboard: 'Previsão Mês Atual',
+        tituloRecebidosDashboard: 'Pagamentos Recebidos',
+        tituloReceberDashboard: 'R$ a Receber',
+        tituloPagarDashboard: 'Contas a Pagar',
+        tituloSaldoDashboard: 'R$ Saldo'
+    };
+    const titulosFiltrados = {
+        tituloPrevisaoDashboard: 'Previsão no Período',
+        tituloRecebidosDashboard: 'Recebidos no Período',
+        tituloReceberDashboard: 'R$ a Receber no Período',
+        tituloPagarDashboard: 'Contas a Pagar no Período',
+        tituloSaldoDashboard: 'R$ Saldo do Período'
+    };
+    const titulos = filtroAgendaAtivo ? titulosFiltrados : titulosPadrao;
+    Object.entries(titulos).forEach(([id, texto]) => {
+        const elemento = document.getElementById(id);
+        if (elemento) elemento.innerText = texto;
+    });
+}
+
 async function atualizarIndicadoresFinanceirosDashboard() {
     try {
         await sincronizarFinanceiroComBanco();
         const base = await buscarBaseFinanceira();
         if (!base) return;
-        const periodo = obterPeriodoMesAtual();
+        const periodo = obterPeriodoFinanceiroDashboard();
         const contasReceber = filtrarContasDePacientesAtivos(contasNoPeriodo('receber', periodo.inicio, periodo.fim, base), base);
         const contasPagar = filtrarContasDePacientesAtivos(contasNoPeriodo('pagar', periodo.inicio, periodo.fim, base), base);
         const ocorrencias = montarOcorrenciasFinanceiras(base, periodo.inicio, periodo.fim).concat(transformarContasReceberEmLinhas(contasReceber));
         const totais = calcularTotaisFinanceiros(ocorrencias);
         const pagar = totalizarContas(contasPagar, true);
         atualizarCardsFinanceiros(totais, pagar);
+        atualizarTitulosDashboardPorPeriodo();
     } catch (err) {
         console.error(err);
     }
