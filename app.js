@@ -2901,6 +2901,7 @@ function renderizarListaPacientes() {
         <div class="cardPaciente" style="${paciente.status === 'Inativo' ? 'opacity:0.65;' : ''}">
             <strong>${escaparHTML(paciente.nome || '')}</strong><br>
             <small>WhatsApp: ${escaparHTML(paciente.telefone || 'Não informado')}</small><br>
+            <span class="paciente-modalidade"><span>Modalidade:</span> <strong>${escaparHTML(paciente.modalidade || 'Não definida')}</strong></span>
             <button class="btn-editar" style="margin-top:10px;" onclick="prepararEdicaoPaciente('${paciente.id}')">Ver perfil / calendário</button>
         </div>
     `).join('');
@@ -2912,8 +2913,22 @@ async function carregarPacientes() {
     if (!lista) return;
     lista.innerHTML = '<div>Buscando listagem...</div>';
     try {
-        const { data } = await bancoDados.from('pacientes').select('*').order('nome');
-        pacientesListagemCache = data || [];
+        const [respostaPacientes, respostaPlanos] = await Promise.all([
+            bancoDados.from('pacientes').select('*').order('nome'),
+            bancoDados.from('planos_atendimento').select('paciente_id, modalidade').eq('ativo', true)
+        ]);
+        if (respostaPacientes.error) throw respostaPacientes.error;
+
+        const modalidadePorPaciente = new Map();
+        (respostaPlanos.data || []).forEach(plano => {
+            if (!modalidadePorPaciente.has(String(plano.paciente_id))) {
+                modalidadePorPaciente.set(String(plano.paciente_id), plano.modalidade || 'Não definida');
+            }
+        });
+        pacientesListagemCache = (respostaPacientes.data || []).map(paciente => ({
+            ...paciente,
+            modalidade: modalidadePorPaciente.get(String(paciente.id)) || 'Não definida'
+        }));
         atualizarBotaoLimparPesquisaPacientes();
         renderizarListaPacientes();
     } catch (err) {
