@@ -33,9 +33,10 @@
         <div class="sidebar-brand">
             <img id="logoClinicaDisplay" src="" alt="Logo da Clínica">
             <div id="nomeClinicaTexto" class="sidebar-brand-title">Psicóloga Franciele Boff</div>
-            <div id="subtituloClinicaTexto" class="sidebar-brand-subtitle">CRP 07/42161</div>
+        <div id="subtituloClinicaTexto" class="sidebar-brand-subtitle">CRP 07/42161</div>
         </div>
         <button onclick="mostrarTela('dashboard')">Agenda</button>
+        <button onclick="mostrarTela('agendaLivre')">Agenda Livre</button>
         <button onclick="mostrarTela('pacientes')">Pacientes</button>
         <button type="button" onclick="alternarSubmenuFinanceiro()">Financeiro</button>
         <div id="submenuFinanceiro" class="submenu-financeiro">
@@ -84,6 +85,35 @@
                 <strong data-total-ativos>0</strong>
             </div>
             <div id="grade-agenda-container"></div>
+        </div>
+
+        <div id="agendaLivre" class="tela">
+            <div class="agenda-livre-cabecalho">
+                <div>
+                    <h3>Horários compatíveis</h3>
+                    <p>Analisa a partir de hoje e confirma o mesmo horário nas próximas cinco semanas.</p>
+                </div>
+                <div class="filtros-agenda-livre">
+                    <div class="form-group">
+                        <label for="frequenciaAgendaLivre">Frequência</label>
+                        <select id="frequenciaAgendaLivre" onchange="renderizarAgendaLivre()">
+                            <option value="Semanal">Semanal</option>
+                            <option value="Quinzenal">Quinzenal</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="duracaoAgendaLivre">Duração</label>
+                        <select id="duracaoAgendaLivre" onchange="renderizarAgendaLivre()">
+                            <option value="50" selected>50 minutos</option>
+                            <option value="45">45 minutos</option>
+                            <option value="60">60 minutos</option>
+                        </select>
+                    </div>
+                    <button type="button" class="btn-principal" onclick="renderizarAgendaLivre()">Atualizar</button>
+                </div>
+            </div>
+            <div id="resumoAgendaLivre" class="resumo-agenda-livre"></div>
+            <div id="resultadoAgendaLivre" class="resultado-agenda-livre" aria-live="polite"></div>
         </div>
 
         <div id="pacientes" class="tela">
