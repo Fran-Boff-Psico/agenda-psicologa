@@ -629,6 +629,7 @@ function mostrarTela(nomeTela, opcoes = {}) {
 
     const titulosModulos = {
         'dashboard': 'Agenda',
+        'agendaLivre': 'Agenda Livre',
         'pacientes': 'Pacientes',
         'relatorios': 'Relatórios',
         'contasReceber': 'Contas a Receber',
@@ -644,6 +645,9 @@ function mostrarTela(nomeTela, opcoes = {}) {
         case 'dashboard':
             atualizarDashboard();
             carregarAgendaSemanal();
+            break;
+        case 'agendaLivre':
+            renderizarAgendaLivre();
             break;
         case 'pacientes':
             carregarPacientes();
@@ -1017,6 +1021,183 @@ async function carregarAgendaSemanal() {
         console.error(err);
     }
 }
+
+function converterHorarioEmMinutos(horario) {
+    if (!/^\d{2}:\d{2}$/.test(String(horario || ''))) return null;
+    const [hora, minuto] = horario.split(':').map(Number);
+    return (hora * 60) + minuto;
+}
+
+function converterMinutosEmHorario(minutos) {
+    const valor = Math.max(0, Math.round(Number(minutos) || 0));
+    return `${String(Math.floor(valor / 60)).padStart(2, '0')}:${String(valor % 60).padStart(2, '0')}`;
+}
+
+function unirFaixasDeHorario(faixas) {
+    const ordenadas = faixas
+        .filter(faixa => faixa.fim > faixa.inicio)
+        .sort((a, b) => a.inicio - b.inicio);
+    return ordenadas.reduce((unidas, faixa) => {
+        const ultima = unidas[unidas.length - 1];
+        if (!ultima || faixa.inicio > ultima.fim) {
+            unidas.push({ ...faixa });
+        } else {
+            ultima.fim = Math.max(ultima.fim, faixa.fim);
+        }
+        return unidas;
+    }, []);
+}
+
+// Retorna somente as faixas que permanecem livres em TODAS as datas da série.
+// Não há grade de 15 minutos: a tela mostra as lacunas reais da agenda.
+function obterFaixasLivresCompativeis(datasDaSerie, ocorrenciasPorData, duracaoSolicitada) {
+    const inicioExpediente = 8 * 60;
+    const fimExpediente = 21 * 60;
+    const duracaoAtendimentoExistente = 50;
+    const ocupacoes = [];
+
+    datasDaSerie.forEach(dataISO => {
+        (ocorrenciasPorData[dataISO] || []).forEach(ocorrencia => {
+            const inicio = converterHorarioEmMinutos(ocorrencia.hora);
+            if (inicio === null) return;
+            const fim = inicio + duracaoAtendimentoExistente;
+            if (fim <= inicioExpediente || inicio >= fimExpediente) return;
+            ocupacoes.push({
+                inicio: Math.max(inicio, inicioExpediente),
+                fim: Math.min(fim, fimExpediente)
+            });
+        });
+    });
+
+    const ocupacoesUnidas = unirFaixasDeHorario(ocupacoes);
+    const faixasLivres = [];
+    let cursor = inicioExpediente;
+    ocupacoesUnidas.forEach(ocupacao => {
+        if (ocupacao.inicio - cursor >= duracaoSolicitada) {
+            faixasLivres.push({ inicio: cursor, fim: ocupacao.inicio });
+        }
+        cursor = Math.max(cursor, ocupacao.fim);
+    });
+    if (fimExpediente - cursor >= duracaoSolicitada) {
+        faixasLivres.push({ inicio: cursor, fim: fimExpediente });
+    }
+    return faixasLivres;
+}
+
+function montarSerieDaAgendaLivre(dataInicial, frequencia, dataLimite) {
+    const intervaloDias = frequencia === 'Quinzenal' ? 14 : 7;
+    const datas = [];
+    for (let data = normalizarData(dataInicial); data <= dataLimite; data = adicionarDias(data, intervaloDias)) {
+        datas.push(formatarDataISO(data));
+    }
+    return datas;
+}
+
+function diaDaSemanaPorExtenso(data) {
+    return ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'][data.getDay()];
+}
+
+async function renderizarAgendaLivre() {
+    const resultado = document.getElementById('resultadoAgendaLivre');
+    const resumo = document.getElementById('resumoAgendaLivre');
+    if (!resultado || !resumo) return;
+
+    resultado.innerHTML = '<div class="agenda-livre-carregando">Analisando horários livres...</div>';
+    resumo.innerHTML = '';
+    if (!bancoDados) {
+        resultado.innerHTML = '<div class="agenda-livre-vazio">Não foi possível acessar a agenda neste momento.</div>';
+        return;
+    }
+
+    const frequencia = document.getElementById('frequenciaAgendaLivre')?.value || 'Semanal';
+    const duracao = Number(document.getElementById('duracaoAgendaLivre')?.value || 50);
+    const hoje = normalizarData(new Date());
+    const fimDaAnalise = adicionarDias(hoje, 34);
+
+    try {
+        const [pacientesResposta, planosResposta, agendamentosResposta] = await Promise.all([
+            bancoDados.from('pacientes').select('id, nome, status'),
+            bancoDados.from('planos_atendimento').select('*').eq('ativo', true),
+            bancoDados.from('agendamentos').select('*').gte('data', formatarDataISO(hoje)).lte('data', formatarDataISO(fimDaAnalise))
+        ]);
+        if (pacientesResposta.error) throw pacientesResposta.error;
+        if (planosResposta.error) throw planosResposta.error;
+        if (agendamentosResposta.error) throw agendamentosResposta.error;
+
+        const base = {
+            pacientes: pacientesResposta.data || [],
+            planos: planosResposta.data || [],
+            agendamentos: agendamentosResposta.data || []
+        };
+        const ocorrencias = montarOcorrenciasFinanceiras(base, hoje, fimDaAnalise);
+        const ocorrenciasPorData = ocorrencias.reduce((mapa, ocorrencia) => {
+            (mapa[ocorrencia.dataISO] ||= []).push(ocorrencia);
+            return mapa;
+        }, {});
+
+        const grupos = [];
+        for (let indice = 0; indice < 7; indice++) {
+            const primeiraData = adicionarDias(hoje, indice);
+            const datasDaSerie = montarSerieDaAgendaLivre(primeiraData, frequencia, fimDaAnalise);
+            const faixas = obterFaixasLivresCompativeis(datasDaSerie, ocorrenciasPorData, duracao);
+            if (faixas.length) grupos.push({ primeiraData, datasDaSerie, faixas });
+        }
+
+        const quantidadeFaixas = grupos.reduce((total, grupo) => total + grupo.faixas.length, 0);
+        const textoFrequencia = frequencia.toLowerCase();
+        resumo.innerHTML = `<strong>${quantidadeFaixas}</strong> faixas compatíveis para frequência <strong>${textoFrequencia}</strong>, entre ${formatarDataBR(hoje)} e ${formatarDataBR(fimDaAnalise)}. Cada faixa comporta sessões de ${duracao} minutos.`;
+
+        if (!grupos.length) {
+            resultado.innerHTML = '<div class="agenda-livre-vazio">Não há uma faixa livre compatível nas próximas cinco semanas para esta frequência.</div>';
+            return;
+        }
+
+        resultado.innerHTML = grupos.map(grupo => {
+            const dataInicialISO = formatarDataISO(grupo.primeiraData);
+            const datasExibidas = grupo.datasDaSerie.map(dataISO => formatarDataBR(criarDataLocal(dataISO))).join(' · ');
+            return `
+                <article class="grupo-agenda-livre">
+                    <header>
+                        <h4>${diaDaSemanaPorExtenso(grupo.primeiraData)} — ${formatarDataBR(grupo.primeiraData)}</h4>
+                        <span>${grupo.datasDaSerie.length} sessões</span>
+                    </header>
+                    <p>Datas verificadas: ${datasExibidas}</p>
+                    <div class="faixas-livres-lista">
+                        ${grupo.faixas.map(faixa => {
+                            const horarioInicial = converterMinutosEmHorario(faixa.inicio);
+                            const horarioFinal = converterMinutosEmHorario(faixa.fim);
+                            return `
+                                <div class="faixa-livre-item">
+                                    <div><strong>${horarioInicial} às ${horarioFinal}</strong><span>Faixa livre em todas as sessões</span></div>
+                                    <button type="button" class="btn-secundario" onclick="prepararNovoPacienteComHorarioLivre('${dataInicialISO}', '${horarioInicial}', '${frequencia}')">Usar início ${horarioInicial}</button>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </article>
+            `;
+        }).join('');
+    } catch (erro) {
+        console.error(erro);
+        resultado.innerHTML = '<div class="agenda-livre-vazio">Não foi possível analisar os horários livres. Tente novamente.</div>';
+    }
+}
+window.renderizarAgendaLivre = renderizarAgendaLivre;
+
+function prepararNovoPacienteComHorarioLivre(dataISO, horario, frequencia) {
+    idPacienteEditando = null;
+    mostrarTela('novoPaciente');
+    const data = criarDataLocal(dataISO);
+    if (document.getElementById('dataInicial')) document.getElementById('dataInicial').value = dataISO;
+    if (document.getElementById('horario')) document.getElementById('horario').value = horario;
+    if (document.getElementById('frequencia')) document.getElementById('frequencia').value = frequencia;
+    if (document.getElementById('diaSemana') && data) {
+        document.getElementById('diaSemana').value = ['Domingo', 'Segunda', 'Terca', 'Quarta', 'Quinta', 'Sexta', 'Sabado'][data.getDay()];
+    }
+    renderizarSidebarCalendarioPaciente(null, true);
+    mostrarAvisoSistema(`Horário ${horario} reservado para o novo cadastro. Complete os dados do paciente.`);
+}
+window.prepararNovoPacienteComHorarioLivre = prepararNovoPacienteComHorarioLivre;
 
 window.abrirEditorDiretoAgenda = function(pacienteId, dataISO, hora, modalidade, valor, status) {
     const modal = document.getElementById('modalAgendamento');
