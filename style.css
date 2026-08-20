@@ -505,6 +505,79 @@ body.tela-abertura-ativa {
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--semana-text) 24%, transparent);
 }
 
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.semana-titulo-com-filtro {
+    position: relative;
+    min-height: 50px;
+}
+
+.semana-titulo-texto {
+    display: block;
+}
+
+.filtros-agenda {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--semana-text);
+}
+
+.filtros-agenda input {
+    width: 126px;
+    min-width: 0;
+    padding: 5px 6px;
+    border: 1px solid color-mix(in srgb, var(--semana-text) 65%, transparent);
+    border-radius: 5px;
+    background: color-mix(in srgb, var(--card-bg) 93%, var(--semana-bg));
+    color: var(--text-dark);
+    font: inherit;
+    font-size: 0.72rem;
+    line-height: 1.2;
+}
+
+.filtros-agenda-separador {
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.btn-limpar-filtro-agenda {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 23px;
+    height: 23px;
+    padding: 0;
+    border: 1px solid color-mix(in srgb, var(--semana-text) 65%, transparent);
+    border-radius: 50%;
+    background: transparent;
+    color: var(--semana-text);
+    font-size: 1.05rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.btn-limpar-filtro-agenda:hover,
+.btn-limpar-filtro-agenda:focus-visible {
+    background: #b91c1c;
+    border-color: #b91c1c;
+    color: #fff;
+}
+
 .grade-agenda {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
@@ -1813,6 +1886,29 @@ body.dark-theme .box-escopo-conta small {
         letter-spacing: -0.045em;
         white-space: nowrap;
         font-weight: 800;
+    }
+
+    .semana-titulo-com-filtro {
+        min-height: 0;
+        white-space: normal;
+    }
+
+    .semana-titulo-com-filtro .semana-titulo-texto {
+        white-space: nowrap;
+    }
+
+    .filtros-agenda {
+        position: static;
+        transform: none;
+        justify-content: center;
+        margin-top: 12px;
+        gap: 4px;
+    }
+
+    .filtros-agenda input {
+        width: min(38vw, 145px);
+        padding: 6px 4px;
+        font-size: 0.68rem;
     }
 
     .agenda-mobile-dia {
