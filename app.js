@@ -307,15 +307,74 @@ function obterSubtituloClinicaConfigurado() {
     return subtituloSalvo;
 }
 
-function contasNoPeriodo(tipo, inicio, fim) {
+function criarOcorrenciaDeContaRecorrente(regra, dataISO) {
+    return {
+        ...regra,
+        id: `${regra.id}_${dataISO}`,
+        contaId: regra.id,
+        data: dataISO,
+        recorrente: true,
+        chavePagamento: `pagamento_conta_${regra.id}_${dataISO}`,
+        pago: obterPagamentoConta(regra.id, dataISO)
+    };
+}
+
+// Quando há uma agenda disponível, a recorrência financeira acompanha as sessões
+// reais do paciente (inclusive uma sessão reagendada), e não apenas o calendário.
+// Assim, "esta data e todas as sessões seguintes" aparece em cada atendimento futuro.
+function contasNoPeriodo(tipo, inicio, fim, baseFinanceira = null) {
     const inicioISO = formatarDataISO(inicio);
     const fimISO = formatarDataISO(fim);
     const contas = obterContasManuais();
     const contasPontuais = contas.filter(conta => conta.tipo === tipo && !conta.recorrente && conta.ativo !== false && conta.data >= inicioISO && conta.data <= fimISO);
     const regras = contas.filter(conta => conta.tipo === tipo && conta.recorrente && conta.data <= fimISO);
     const contasRecorrentes = [];
+    const regrasProcessadasPelaAgenda = new Set();
+    const possuiContaPontualNaData = (regra, dataISO) => contas.some(conta =>
+        !conta.recorrente
+        && conta.tipo === tipo
+        && conta.origem === chaveOrigemContaPagar(regra.pacienteId, dataISO)
+    );
+
+    if (baseFinanceira?.pacientes && baseFinanceira?.planos && baseFinanceira?.agendamentos) {
+        const pacientesAtivos = new Set(
+            baseFinanceira.pacientes
+                .filter(paciente => paciente.status !== 'Inativo')
+                .map(paciente => String(paciente.id))
+        );
+        const sessoesDoPeriodo = montarOcorrenciasFinanceiras(baseFinanceira, inicio, fim);
+
+        regras.forEach(regra => {
+            const pacienteId = regra.pacienteId == null ? '' : String(regra.pacienteId);
+            if (!pacienteId || !pacientesAtivos.has(pacienteId)) return;
+
+            // Uma regra posterior do mesmo paciente passa a valer no lugar da anterior.
+            const proximaRegra = regras
+                .filter(item => String(item.pacienteId) === pacienteId && item.data > regra.data)
+                .sort((a, b) => a.data.localeCompare(b.data))[0];
+            const limiteISO = proximaRegra
+                ? formatarDataISO(adicionarDias(criarDataLocal(proximaRegra.data), -1))
+                : fimISO;
+            if (!regra.ativo || limiteISO < inicioISO) {
+                regrasProcessadasPelaAgenda.add(regra.id);
+                return;
+            }
+
+            sessoesDoPeriodo
+                .filter(sessao => String(sessao.pacienteId) === pacienteId
+                    && sessao.dataISO >= regra.data
+                    && sessao.dataISO <= limiteISO)
+                .forEach(sessao => {
+                    if (!possuiContaPontualNaData(regra, sessao.dataISO)) {
+                        contasRecorrentes.push(criarOcorrenciaDeContaRecorrente(regra, sessao.dataISO));
+                    }
+                });
+            regrasProcessadasPelaAgenda.add(regra.id);
+        });
+    }
 
     regras.forEach(regra => {
+        if (regrasProcessadasPelaAgenda.has(regra.id)) return;
         const proximaRegra = regras
             .filter(item => item.pacienteId === regra.pacienteId && item.data > regra.data)
             .sort((a, b) => a.data.localeCompare(b.data))[0];
@@ -330,18 +389,8 @@ function contasNoPeriodo(tipo, inicio, fim) {
             const dataFoco = adicionarDias(primeiroDia, i);
             const dataISO = formatarDataISO(dataFoco);
             if (!checarDataCorrespondeAoPlano(dataFoco, regra.data, regra.diaSemana, regra.frequencia)) continue;
-            const origemPontual = chaveOrigemContaPagar(regra.pacienteId, dataISO);
-            if (contas.some(conta => !conta.recorrente && conta.tipo === tipo && conta.origem === origemPontual)) continue;
-            const chavePagamento = `pagamento_conta_${regra.id}_${dataISO}`;
-            contasRecorrentes.push({
-                ...regra,
-                id: `${regra.id}_${dataISO}`,
-                contaId: regra.id,
-                data: dataISO,
-                recorrente: true,
-                chavePagamento,
-                pago: obterPagamentoConta(regra.id, dataISO)
-            });
+            if (possuiContaPontualNaData(regra, dataISO)) continue;
+            contasRecorrentes.push(criarOcorrenciaDeContaRecorrente(regra, dataISO));
         }
     });
     return contasPontuais.concat(contasRecorrentes).sort((a, b) => a.data.localeCompare(b.data));
@@ -1746,9 +1795,6 @@ async function renderizarSidebarCalendarioPaciente(pacienteId, manterPeriodoAtua
     if (!manterPeriodoAtual) configurarPeriodoPadraoSidebar();
     const periodo = obterPeriodoConsultaPaciente();
     if (!periodo) return;
-    const contasPagarPeriodo = contasNoPeriodo('pagar', periodo.dataInicio, periodo.dataFim)
-        .filter(conta => String(conta.pacienteId) === String(pacienteId));
-
     const horaExibResumo = horaPadrao ? horaPadrao.substring(0, 5) : '--:--';
     resumoBox.innerHTML = `
         <strong>Frequência atual:</strong> ${frequencia}<br>
@@ -1770,6 +1816,28 @@ async function renderizarSidebarCalendarioPaciente(pacienteId, manterPeriodoAtua
                 .lte('data', formatarDataISO(periodo.dataFim));
             if (res.data) agendamentos = res.data;
         }
+
+        // Na lateral do prontuário a conta recorrente deve seguir as sessões que
+        // realmente serão exibidas, mesmo se alguma delas foi reagendada.
+        const baseDaAgendaDoPaciente = {
+            pacientes: [{
+                id: pacienteId,
+                nome: document.getElementById('nome')?.value || 'Paciente',
+                status: document.getElementById('statusVinculo')?.value || 'Ativo'
+            }],
+            planos: [{
+                paciente_id: pacienteId,
+                data_inicio: dataInicioStr,
+                dia_semana: diaSemana,
+                frequencia,
+                hora_padrao: horaPadrao,
+                modalidade,
+                valor
+            }],
+            agendamentos
+        };
+        const contasPagarPeriodo = contasNoPeriodo('pagar', periodo.dataInicio, periodo.dataFim, baseDaAgendaDoPaciente)
+            .filter(conta => String(conta.pacienteId) === String(pacienteId));
 
         let htmlProxe = '';
         const dataBaseLoop = criarDataLocal(dataInicioStr);
@@ -2015,8 +2083,8 @@ async function atualizarIndicadoresFinanceirosDashboard() {
         const base = await buscarBaseFinanceira();
         if (!base) return;
         const periodo = obterPeriodoMesAtual();
-        const contasReceber = filtrarContasDePacientesAtivos(contasNoPeriodo('receber', periodo.inicio, periodo.fim), base);
-        const contasPagar = filtrarContasDePacientesAtivos(contasNoPeriodo('pagar', periodo.inicio, periodo.fim), base);
+        const contasReceber = filtrarContasDePacientesAtivos(contasNoPeriodo('receber', periodo.inicio, periodo.fim, base), base);
+        const contasPagar = filtrarContasDePacientesAtivos(contasNoPeriodo('pagar', periodo.inicio, periodo.fim, base), base);
         const ocorrencias = montarOcorrenciasFinanceiras(base, periodo.inicio, periodo.fim).concat(transformarContasReceberEmLinhas(contasReceber));
         const totais = calcularTotaisFinanceiros(ocorrencias);
         const pagar = totalizarContas(contasPagar, true);
@@ -2081,8 +2149,8 @@ async function gerarRelatorioFinanceiro() {
         const base = await buscarBaseFinanceira();
         const filtroRegistrosManuais = selectPaciente.value === 'reg_manual';
         const pacienteFiltro = filtroRegistrosManuais ? '' : selectPaciente.value;
-        const contasReceber = filtrarContasDePacientesAtivos(contasNoPeriodo('receber', inicio, fim), base);
-        const contasPagar = filtrarContasDePacientesAtivos(contasNoPeriodo('pagar', inicio, fim), base)
+        const contasReceber = filtrarContasDePacientesAtivos(contasNoPeriodo('receber', inicio, fim, base), base);
+        const contasPagar = filtrarContasDePacientesAtivos(contasNoPeriodo('pagar', inicio, fim, base), base)
             .filter(conta => filtroRegistrosManuais || !pacienteFiltro || String(conta.pacienteId || '') === String(pacienteFiltro));
         const linhasReceberManual = transformarContasReceberEmLinhas(contasReceber);
         const linhasPagar = transformarContasPagarEmLinhas(contasPagar);
@@ -2350,8 +2418,8 @@ async function carregarTelaContas(tipo) {
     let baseFinanceira = null;
     if (bancoDados) {
         baseFinanceira = await buscarBaseFinanceira();
-        const contasReceberAtivas = filtrarContasDePacientesAtivos(contasNoPeriodo('receber', periodo.inicio, periodo.fim), baseFinanceira);
-        const contasPagarAtivas = filtrarContasDePacientesAtivos(contasNoPeriodo('pagar', periodo.inicio, periodo.fim), baseFinanceira);
+        const contasReceberAtivas = filtrarContasDePacientesAtivos(contasNoPeriodo('receber', periodo.inicio, periodo.fim, baseFinanceira), baseFinanceira);
+        const contasPagarAtivas = filtrarContasDePacientesAtivos(contasNoPeriodo('pagar', periodo.inicio, periodo.fim, baseFinanceira), baseFinanceira);
         const contasTipoAtivas = tipo === 'pagar' ? contasPagarAtivas : contasReceberAtivas;
         const ocorrencias = montarOcorrenciasFinanceiras(baseFinanceira, periodo.inicio, periodo.fim).concat(transformarContasReceberEmLinhas(contasReceberAtivas));
         totais = calcularTotaisFinanceiros(ocorrencias);
@@ -2392,11 +2460,33 @@ window.alternarDescricaoContaPagarOcorrencia = alternarDescricaoContaPagarOcorre
 
 function chaveOrigemContaPagar(pacienteId, dataISO) { return `ocorrencia_${pacienteId}_${dataISO}`; }
 
-function carregarContaPagarOcorrencia(pacienteId, dataISO) {
+function obterContaPagarDaSessao(pacienteId, dataISO) {
     const data = criarDataLocal(dataISO);
-    const conta = contasNoPeriodo('pagar', data, data)
-        .find(item => String(item.pacienteId) === String(pacienteId))
-        || obterContasManuais().find(item => item.tipo === 'pagar' && item.origem === chaveOrigemContaPagar(pacienteId, dataISO));
+    const contaDaData = contasNoPeriodo('pagar', data, data)
+        .find(item => String(item.pacienteId) === String(pacienteId));
+    if (contaDaData) return contaDaData;
+
+    const contaPontual = obterContasManuais().find(item =>
+        item.tipo === 'pagar'
+        && !item.recorrente
+        && item.origem === chaveOrigemContaPagar(pacienteId, dataISO)
+    );
+    if (contaPontual) return contaPontual;
+
+    // O editor só é aberto a partir de uma sessão existente. Portanto, se houver
+    // uma regra vigente para o paciente, ela deve ser mostrada também nessa sessão.
+    const regra = obterContasManuais()
+        .filter(item => item.tipo === 'pagar'
+            && item.recorrente
+            && item.ativo !== false
+            && String(item.pacienteId) === String(pacienteId)
+            && item.data <= dataISO)
+        .sort((a, b) => b.data.localeCompare(a.data))[0];
+    return regra ? criarOcorrenciaDeContaRecorrente(regra, dataISO) : null;
+}
+
+function carregarContaPagarOcorrencia(pacienteId, dataISO) {
+    const conta = obterContaPagarDaSessao(pacienteId, dataISO);
     const categoria = document.getElementById('contaPagarOcorrenciaCategoria');
     const descricao = document.getElementById('contaPagarOcorrenciaDescricao');
     const valor = document.getElementById('contaPagarOcorrenciaValor');
