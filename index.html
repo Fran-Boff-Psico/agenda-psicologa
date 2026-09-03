@@ -126,6 +126,11 @@
                     <input type="text" id="pesquisaPacientes" placeholder="Pesquisar paciente" autocomplete="off" aria-label="Pesquisar paciente cadastrado">
                     <button type="button" id="btnLimparPesquisaPacientes" class="btn-limpar-pesquisa" onclick="limparPesquisaPacientes()" aria-label="Limpar pesquisa" title="Limpar pesquisa" hidden>×</button>
                 </div>
+                <select id="filtroStatusPacientes" class="filtro-status-pacientes" onchange="renderizarListaPacientes()" aria-label="Filtrar pacientes por status">
+                    <option value="Ativo">Ativos</option>
+                    <option value="Inativo">Inativos</option>
+                    <option value="Todos">Todos</option>
+                </select>
             </div>
             <div id="listaPacientes" class="grid-pacientes"></div>
         </div>
