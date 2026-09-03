@@ -436,6 +436,22 @@ function filtrarContasDePacientesAtivos(contas, baseFinanceira) {
     });
 }
 
+// Relatórios são históricos: um paciente arquivado continua aparecendo apenas
+// nos lançamentos anteriores ao dia atual, sem voltar a compor projeções futuras.
+function filtrarContasParaRelatorio(contas, baseFinanceira) {
+    if (!baseFinanceira?.pacientes) return contas;
+    const pacientesPorId = new Map(baseFinanceira.pacientes.map(paciente => [String(paciente.id), paciente]));
+    const hojeISO = formatarDataISO(normalizarData(new Date()));
+    return contas.filter(conta => {
+        const pacienteIdInformado = conta?.pacienteId == null || conta.pacienteId === '' ? '' : String(conta.pacienteId);
+        const pacienteId = pacienteIdInformado || obterPacienteIdDaOrigemFinanceira(conta);
+        if (!pacienteId) return true;
+        const paciente = pacientesPorId.get(pacienteId);
+        if (!paciente) return false;
+        return paciente.status !== 'Inativo' || String(conta.data || '') < hojeISO;
+    });
+}
+
 function totalizarContas(contas, somenteEmAberto = false) {
     return contas.filter(conta => !somenteEmAberto || !conta.pago).reduce((total, conta) => total + Number(conta.valor || 0), 0);
 }
@@ -853,14 +869,22 @@ async function carregarAgendaSemanal() {
     if (!bancoDados) return;
 
     try {
-        const { data: pacientes } = await bancoDados.from('pacientes').select('id, nome');
+        const { data: pacientes } = await bancoDados.from('pacientes').select('id, nome, status');
         const { data: planos } = await bancoDados.from('planos_atendimento').select('*').eq('ativo', true);
         const { data: agendamentos } = await bancoDados.from('agendamentos').select('*');
 
-        const mapaPacientes = {};
-        if (pacientes) pacientes.forEach(p => mapaPacientes[p.id] = p.nome);
-
         const hoje = new Date();
+        const hojeISO = formatarDataISO(normalizarData(hoje));
+        const mapaPacientes = {};
+        // Mantém a identificação dos pacientes arquivados para que uma consulta
+        // de semanas passadas continue exibindo o histórico salvo.
+        if (pacientes) pacientes.forEach(paciente => mapaPacientes[paciente.id] = paciente);
+        const pacienteVisivelNaAgenda = (pacienteId, dataISO) => {
+            const paciente = mapaPacientes[pacienteId];
+            if (!paciente) return false;
+            return paciente.status !== 'Inativo' || dataISO < hojeISO;
+        };
+
         const periodoFiltro = obterPeriodoFiltroAgenda();
         const segundaCorrente = inicioDaSemana(periodoFiltro?.inicio || hoje);
         const domingoFinal = periodoFiltro ? adicionarDias(inicioDaSemana(periodoFiltro.fim), 6) : adicionarDias(segundaCorrente, 34);
@@ -885,12 +909,12 @@ async function carregarAgendaSemanal() {
                 const especificosHoje = agendamentos ? agendamentos.filter(a => a.data === dataISOChave) : [];
 
                 especificosHoje.forEach(esp => {
-                    if (mapaPacientes[esp.paciente_id] && esp.status !== 'Cancelado') {
+                    if (pacienteVisivelNaAgenda(esp.paciente_id, dataISOChave) && esp.status !== 'Cancelado') {
                         const planoOrigem = planos ? planos.find(pl => pl.paciente_id === esp.paciente_id) : null;
                         itensDoDia.push({
                             id: esp.id,
                             pacienteId: esp.paciente_id,
-                            nome: mapaPacientes[esp.paciente_id],
+                            nome: mapaPacientes[esp.paciente_id].nome,
                             hora: esp.hora ? esp.hora.substring(0, 5) : '--:--',
                             modalidade: esp.modalidade || (planoOrigem ? planoOrigem.modalidade : 'Presencial'),
                             valor: esp.valor || (planoOrigem ? planoOrigem.valor : 0),
@@ -902,13 +926,13 @@ async function carregarAgendaSemanal() {
                 if (planos) {
                     planos.forEach(plano => {
                         const possuiExcecaoHoje = especificosHoje.some(e => e.paciente_id === plano.paciente_id);
-                        if (!possuiExcecaoHoje && mapaPacientes[plano.paciente_id]) {
+                        if (!possuiExcecaoHoje && pacienteVisivelNaAgenda(plano.paciente_id, dataISOChave)) {
                             const corresponde = checarDataCorrespondeAoPlano(new Date(dataDiaCell), plano.data_inicio, plano.dia_semana, plano.frequencia);
                             if (corresponde) {
                                 itensDoDia.push({
                                     id: null,
                                     pacienteId: plano.paciente_id,
-                                    nome: mapaPacientes[plano.paciente_id],
+                                    nome: mapaPacientes[plano.paciente_id].nome,
                                     hora: plano.hora_padrao ? plano.hora_padrao.substring(0, 5) : '--:--',
                                     modalidade: plano.modalidade || 'Presencial',
                                     valor: plano.valor || 0,
@@ -2087,11 +2111,16 @@ async function renderizarSidebarCalendarioPaciente(pacienteId, manterPeriodoAtua
             return;
         }
 
+        const pacienteInativo = document.getElementById('statusVinculo')?.value === 'Inativo';
+        const hoje = normalizarData(new Date());
         const totalDias = Math.round((periodo.dataFim.getTime() - periodo.dataInicio.getTime()) / (1000 * 60 * 60 * 24));
 
         for (let i = 0; i <= totalDias; i++) {
             const dataFoco = adicionarDias(periodo.dataInicio, i);
             const dataISO = formatarDataISO(dataFoco);
+            // No prontuário arquivado o passado continua consultável; a partir de
+            // hoje nenhuma projeção ou sessão futura deve ser apresentada.
+            if (pacienteInativo && normalizarData(dataFoco) >= hoje) continue;
             const atendeRecorrencia = checarDataCorrespondeAoPlano(new Date(dataFoco), dataInicioStr, diaSemana, frequencia);
             const excecao = agendamentos.find(a => a.data === dataISO);
 
@@ -2190,7 +2219,7 @@ async function executarSalvamentoPorEscopo(pacienteId, dataOriginalISO, novaData
 async function buscarBaseFinanceira() {
     if (!bancoDados) return null;
     const { data: pacientes } = await bancoDados.from('pacientes').select('id, nome, status').order('nome');
-    const { data: planos } = await bancoDados.from('planos_atendimento').select('*').eq('ativo', true);
+    const { data: planos } = await bancoDados.from('planos_atendimento').select('*');
     const { data: agendamentos } = await bancoDados.from('agendamentos').select('*');
     return {
         pacientes: pacientes || [],
@@ -2199,11 +2228,16 @@ async function buscarBaseFinanceira() {
     };
 }
 
-function montarOcorrenciasFinanceiras(base, dataInicio, dataFim, pacienteFiltro = '') {
+function montarOcorrenciasFinanceiras(base, dataInicio, dataFim, pacienteFiltro = '', incluirHistoricoDeInativos = false) {
     if (!base || !dataInicio || !dataFim) return [];
-    const pacientesAtivos = base.pacientes.filter(p => p.status !== 'Inativo');
     const mapaPacientes = {};
-    pacientesAtivos.forEach(p => mapaPacientes[p.id] = p.nome || 'Paciente sem nome');
+    base.pacientes.forEach(paciente => mapaPacientes[paciente.id] = paciente);
+    const hojeISO = formatarDataISO(normalizarData(new Date()));
+    const pacienteDisponivelNaData = (pacienteId, dataISO) => {
+        const paciente = mapaPacientes[pacienteId];
+        if (!paciente) return false;
+        return paciente.status !== 'Inativo' || (incluirHistoricoDeInativos && dataISO < hojeISO);
+    };
 
     const ocorrencias = [];
     const totalDias = Math.round((normalizarData(dataFim).getTime() - normalizarData(dataInicio).getTime()) / (1000 * 60 * 60 * 24));
@@ -2214,7 +2248,7 @@ function montarOcorrenciasFinanceiras(base, dataInicio, dataFim, pacienteFiltro 
         const especificosDia = base.agendamentos.filter(a => a.data === dataISO);
 
         especificosDia.forEach(ag => {
-            if (!mapaPacientes[ag.paciente_id]) return;
+            if (!pacienteDisponivelNaData(ag.paciente_id, dataISO)) return;
             if (pacienteFiltro && String(ag.paciente_id) !== String(pacienteFiltro)) return;
             if (ag.status === 'Cancelado') return;
 
@@ -2224,7 +2258,7 @@ function montarOcorrenciasFinanceiras(base, dataInicio, dataFim, pacienteFiltro 
 
             ocorrencias.push({
                 pacienteId: ag.paciente_id,
-                pacienteNome: mapaPacientes[ag.paciente_id],
+                pacienteNome: mapaPacientes[ag.paciente_id].nome || 'Paciente sem nome',
                 dataISO,
                 dataObj: dataFoco,
                 hora: ag.hora ? ag.hora.substring(0, 5) : (planoOrigem.hora_padrao ? planoOrigem.hora_padrao.substring(0, 5) : '--:--'),
@@ -2236,7 +2270,10 @@ function montarOcorrenciasFinanceiras(base, dataInicio, dataFim, pacienteFiltro 
         });
 
         base.planos.forEach(plano => {
-            if (!mapaPacientes[plano.paciente_id]) return;
+            if (!pacienteDisponivelNaData(plano.paciente_id, dataISO)) return;
+            // Um plano desativado não volta a criar sessões retroativamente: os
+            // agendamentos históricos efetivamente salvos seguem consultáveis.
+            if (plano.ativo === false) return;
             if (pacienteFiltro && String(plano.paciente_id) !== String(pacienteFiltro)) return;
             const possuiExcecao = especificosDia.some(e => e.paciente_id === plano.paciente_id);
             if (possuiExcecao) return;
@@ -2245,7 +2282,7 @@ function montarOcorrenciasFinanceiras(base, dataInicio, dataFim, pacienteFiltro 
             const pago = obterPagamentoAtendimento(plano.paciente_id, dataISO);
             ocorrencias.push({
                 pacienteId: plano.paciente_id,
-                pacienteNome: mapaPacientes[plano.paciente_id],
+                pacienteNome: mapaPacientes[plano.paciente_id].nome || 'Paciente sem nome',
                 dataISO,
                 dataObj: dataFoco,
                 hora: plano.hora_padrao ? plano.hora_padrao.substring(0, 5) : '--:--',
@@ -2412,13 +2449,13 @@ async function gerarRelatorioFinanceiro() {
         const base = await buscarBaseFinanceira();
         const filtroRegistrosManuais = selectPaciente.value === 'reg_manual';
         const pacienteFiltro = filtroRegistrosManuais ? '' : selectPaciente.value;
-        const contasReceber = filtrarContasDePacientesAtivos(contasNoPeriodo('receber', inicio, fim, base), base);
-        const contasPagar = filtrarContasDePacientesAtivos(contasNoPeriodo('pagar', inicio, fim, base), base)
+        const contasReceber = filtrarContasParaRelatorio(contasNoPeriodo('receber', inicio, fim, base), base);
+        const contasPagar = filtrarContasParaRelatorio(contasNoPeriodo('pagar', inicio, fim, base), base)
             .filter(conta => filtroRegistrosManuais || !pacienteFiltro || String(conta.pacienteId || '') === String(pacienteFiltro));
         const linhasReceberManual = transformarContasReceberEmLinhas(contasReceber);
         const linhasPagar = transformarContasPagarEmLinhas(contasPagar);
         const linhasPagarRegManual = linhasPagar.filter(linha => linha.modalidade === 'Reg. Manual');
-        const ocorrencias = montarOcorrenciasFinanceiras(base, inicio, fim, pacienteFiltro).concat(linhasReceberManual);
+        const ocorrencias = montarOcorrenciasFinanceiras(base, inicio, fim, pacienteFiltro, true).concat(linhasReceberManual);
         const totais = calcularTotaisFinanceiros(filtroRegistrosManuais ? linhasReceberManual : ocorrencias);
         const contasPagarDoIndicador = filtroRegistrosManuais
             ? contasPagar.filter(conta => ['Outro', 'Manual', 'Reg. Manual'].includes(conta.categoria || ''))
@@ -3237,16 +3274,19 @@ function renderizarListaPacientes() {
     if (!lista) return;
 
     const pesquisa = normalizarTextoPesquisa(document.getElementById('pesquisaPacientes')?.value);
+    const filtroStatus = document.getElementById('filtroStatusPacientes')?.value || 'Ativo';
     const pacientesOrdenados = [...pacientesListagemCache]
         .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
-    const pacientesFiltrados = pesquisa
-        ? pacientesOrdenados.filter(paciente => normalizarTextoPesquisa(paciente.nome).includes(pesquisa))
-        : pacientesOrdenados;
+    const pacientesFiltrados = pacientesOrdenados.filter(paciente => {
+        const statusCompativel = filtroStatus === 'Todos' || (paciente.status || 'Ativo') === filtroStatus;
+        const pesquisaCompativel = !pesquisa || normalizarTextoPesquisa(paciente.nome).includes(pesquisa);
+        return statusCompativel && pesquisaCompativel;
+    });
 
     if (pacientesFiltrados.length === 0) {
         lista.innerHTML = pesquisa
             ? '<div>Nenhum paciente encontrado para esta pesquisa.</div>'
-            : '<div>Nenhum paciente localizado.</div>';
+            : `<div>Nenhum paciente ${filtroStatus === 'Todos' ? '' : filtroStatus.toLowerCase()} localizado.</div>`;
         return;
     }
 
@@ -3371,10 +3411,10 @@ async function salvarPaciente() {
             dia_semana: document.getElementById('diaSemana')?.value || 'Segunda',
             frequencia: document.getElementById('frequencia')?.value || 'Semanal',
             hora_padrao: document.getElementById('horario')?.value || '',
-            modalidade: document.getElementById('modalidade')?.value || 'Presencial',
-            valor: Number(document.getElementById('valor')?.value || 0),
-            forma_cobranca: document.getElementById('formaCobranca')?.value || 'Mensal',
-            ativo: true
+        modalidade: document.getElementById('modalidade')?.value || 'Presencial',
+        valor: Number(document.getElementById('valor')?.value || 0),
+        forma_cobranca: document.getElementById('formaCobranca')?.value || 'Mensal',
+        ativo: payloadPaciente.status !== 'Inativo'
         };
 
         const { data: planoExistente } = await bancoDados.from('planos_atendimento').select('id').eq('paciente_id', pacienteId);
@@ -3382,6 +3422,19 @@ async function salvarPaciente() {
             await bancoDados.from('planos_atendimento').update(payloadPlano).eq('paciente_id', pacienteId);
         } else {
             await bancoDados.from('planos_atendimento').insert([payloadPlano]);
+        }
+
+        if (payloadPaciente.status === 'Inativo') {
+            // Mantém todo o histórico e apenas cancela os compromissos estritamente
+            // futuros. As recorrências deixam de existir ao desativar o plano.
+            const hojeISO = formatarDataISO(normalizarData(new Date()));
+            const { error: erroCancelarFuturos } = await bancoDados
+                .from('agendamentos')
+                .update({ status: 'Cancelado' })
+                .eq('paciente_id', pacienteId)
+                .gt('data', hojeISO)
+                .neq('status', 'Realizado');
+            if (erroCancelarFuturos) throw erroCancelarFuturos;
         }
         alert('Prontuário salvo com sucesso!');
         mostrarTela('pacientes');
