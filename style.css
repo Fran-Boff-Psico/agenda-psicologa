@@ -1013,6 +1013,16 @@ body.tela-abertura-ativa {
     width: min(100%, 330px);
 }
 
+.filtro-status-pacientes {
+    min-width: 118px;
+    min-height: 39px;
+    padding: 8px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--card-bg);
+    color: var(--text-main);
+}
+
 .pesquisa-pacientes input {
     width: 100%;
     min-height: 39px;
@@ -2134,6 +2144,24 @@ body.dark-theme .box-escopo-conta small {
 
     .faixa-livre-item .btn-secundario {
         width: 100%;
+    }
+
+    .cabecalho-lista-pacientes {
+        align-items: stretch;
+        flex-wrap: wrap;
+    }
+
+    .cabecalho-lista-pacientes .titulo-lista-pacientes {
+        flex: 1 1 100%;
+        text-align: center;
+    }
+
+    .pesquisa-pacientes {
+        flex: 1 1 180px;
+    }
+
+    .filtro-status-pacientes {
+        flex: 0 1 130px;
     }
 
     #sidebar-agenda-paciente {
