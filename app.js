@@ -781,6 +781,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btnExportarRelatorio')?.addEventListener('click', exportarRelatorioFinanceiro);
     document.getElementById('btnExportarExcelRelatorio')?.addEventListener('click', exportarRelatorioExcel);
     document.getElementById('btnEnviarWhatsAppRelatorio')?.addEventListener('click', enviarRelatorioViaWhatsApp);
+    document.getElementById('filtroReceberPaciente')?.addEventListener('change', () => carregarTelaContas('receber'));
     ['tipoRelatorio', 'filtroPacienteRelatorio', 'filtroPagamentoRelatorio', 'dataInicioRelatorio', 'dataFimRelatorio'].forEach(campoId => {
         document.getElementById(campoId)?.addEventListener('change', gerarRelatorioFinanceiro);
     });
@@ -2655,6 +2656,25 @@ async function alternarContaPaga(id, tipo, paga, chavePagamento = '') {
 }
 window.alternarContaPaga = alternarContaPaga;
 
+async function alternarPagamentoAtendimento(pacienteId, dataISO, pago) {
+    const chave = chavePagamentoOcorrencia(pacienteId, dataISO);
+    const pagamentoAnterior = obterPagamentoAtendimento(pacienteId, dataISO);
+    try {
+        await salvarPagamentoAtendimentoNoBanco(pacienteId, dataISO, pago);
+    } catch (erro) {
+        // Restaura a tela e o cache caso a gravação remota não tenha sido aceita.
+        pagamentosAtendimentosCache[chave] = pagamentoAnterior;
+        localStorage.setItem(chave, pagamentoAnterior ? 'true' : 'false');
+        console.error(erro);
+        alert('Não foi possível atualizar o pagamento na nuvem. Tente novamente.');
+        atualizarTelasFinanceirasAbertas();
+        return;
+    }
+    mostrarAvisoSistema(pago ? 'Pagamento registrado com sucesso.' : 'Pagamento marcado como em aberto.');
+    emitirAlteracaoFinanceira();
+}
+window.alternarPagamentoAtendimento = alternarPagamentoAtendimento;
+
 function obterPeriodoFiltrosContas(tipo) {
     const sufixo = tipo === 'pagar' ? 'Pagar' : 'Receber';
     const inicioInput = document.getElementById(`filtro${sufixo}Inicio`);
@@ -2671,10 +2691,42 @@ function filtroStatusContas(tipo) {
     return document.getElementById(tipo === 'pagar' ? 'filtroPagarStatus' : 'filtroReceberStatus')?.value || 'todos';
 }
 
+function preencherFiltroPacienteContasReceber(pacientes = []) {
+    const seletor = document.getElementById('filtroReceberPaciente');
+    if (!seletor) return;
+
+    const selecionado = seletor.value;
+    const pacientesAtivos = pacientes
+        .filter(paciente => paciente.status !== 'Inativo')
+        .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
+    seletor.innerHTML = `<option value="">Todos os pacientes</option>${pacientesAtivos
+        .map(paciente => `<option value="${escaparHTML(paciente.id)}">${escaparHTML(paciente.nome || 'Paciente sem nome')}</option>`)
+        .join('')}`;
+    if (pacientesAtivos.some(paciente => String(paciente.id) === String(selecionado))) {
+        seletor.value = selecionado;
+    }
+}
+
+function filtroPacienteContasReceber() {
+    return document.getElementById('filtroReceberPaciente')?.value || '';
+}
+
+function montarIndicadorPagamento(linha) {
+    return `<span class="${linha.pago ? 'badge-pago' : 'badge-aberto'}">${linha.pago ? 'Pago' : 'Em aberto'}</span>`;
+}
+
 function montarControlePagamentoFinanceiro(linha, tipo, contaManual) {
+    // As sessões da agenda guardam o pagamento por paciente e data. Essa mesma
+    // informação é usada nos relatórios, nos indicadores e no prontuário.
+    if (tipo === 'receber' && linha.pacienteId && linha.dataISO) {
+        const pacienteId = String(linha.pacienteId).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        const dataISO = String(linha.dataISO).replace(/'/g, "\\'");
+        return `<label class="checkbox-pagamento checkbox-tabela"><input type="checkbox" ${linha.pago ? 'checked' : ''} onchange="alternarPagamentoAtendimento('${pacienteId}', '${dataISO}', this.checked)"><span>Pago</span></label>`;
+    }
+
     const permiteMarcar = Boolean(linha.contaId && (contaManual || tipo === 'pagar'));
     if (!permiteMarcar) {
-        return `<span class="${linha.pago ? 'badge-pago' : 'badge-aberto'}">${linha.pago ? 'Pago' : 'Em aberto'}</span>`;
+        return montarIndicadorPagamento(linha);
     }
 
     const contaId = String(linha.contaId).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
@@ -2693,13 +2745,14 @@ function montarCardsFinanceirosMobile(detalhes) {
     return `<div class="lista-contas-mobile">${Array.from(grupos.entries()).map(([nome, itens]) => `
         <article class="card-conta-mobile">
             <h4>${escaparHTML(nome)}</h4>
-            ${itens.map(({ linha, statusAtendimento, pagamento, acao }) => `
+            ${itens.map(({ linha, statusAtendimento, pagamento, controlePagamento, acao }) => `
                 <div class="item-conta-mobile">
                     <div class="item-conta-mobile-topo"><strong>${formatarDataBR(linha.dataObj)}</strong><strong>${formatarMoeda(linha.valor)}</strong></div>
                     <div class="item-conta-mobile-linha"><span>Categoria</span><span>${escaparHTML(linha.modalidade || '—')}</span></div>
                     ${linha.hora && linha.hora !== '--:--' ? `<div class="item-conta-mobile-linha"><span>Hora</span><span>${escaparHTML(linha.hora)}</span></div>` : ''}
                     <div class="item-conta-mobile-linha"><span>Status</span><span>${escaparHTML(statusAtendimento)}</span></div>
                     <div class="item-conta-mobile-linha"><span>Pagamento</span>${pagamento}</div>
+                    ${controlePagamento ? `<div class="item-conta-mobile-linha"><span>Marcar como pago</span>${controlePagamento}</div>` : ''}
                     ${acao ? `<div class="item-conta-mobile-linha item-conta-mobile-acoes">${acao}</div>` : ''}
                 </div>
             `).join('')}
@@ -2719,6 +2772,7 @@ async function carregarTelaContas(tipo) {
     let baseFinanceira = null;
     if (bancoDados) {
         baseFinanceira = await buscarBaseFinanceira();
+        if (tipo === 'receber') preencherFiltroPacienteContasReceber(baseFinanceira.pacientes || []);
         const contasReceberAtivas = filtrarContasDePacientesAtivos(contasNoPeriodo('receber', periodo.inicio, periodo.fim, baseFinanceira), baseFinanceira);
         const contasPagarAtivas = filtrarContasDePacientesAtivos(contasNoPeriodo('pagar', periodo.inicio, periodo.fim, baseFinanceira), baseFinanceira);
         const contasTipoAtivas = tipo === 'pagar' ? contasPagarAtivas : contasReceberAtivas;
@@ -2729,6 +2783,15 @@ async function carregarTelaContas(tipo) {
     } else {
         linhas = tipo === 'receber' ? transformarContasReceberEmLinhas(contasTipo) : transformarContasPagarEmLinhas(contasTipo);
     }
+
+    // O filtro de paciente afeta a lista e os valores exibidos em Contas a Receber.
+    // Cada linha continua ligada à mesma sessão usada na Agenda e nos Relatórios.
+    const pacienteFiltro = tipo === 'receber' ? filtroPacienteContasReceber() : '';
+    if (pacienteFiltro) {
+        linhas = linhas.filter(linha => String(linha.pacienteId || '') === String(pacienteFiltro));
+    }
+    if (tipo === 'receber') totais = calcularTotaisFinanceiros(linhas);
+
     atualizarCardsFinanceiros(totais, pagar, tipo === 'pagar' ? { pagar: 'pagarTotal', saldo: 'pagarSaldo' } : { previsto: 'receberPrevisto', recebido: 'receberRecebido', aberto: 'receberAberto', pagar: 'receberPagar', saldo: 'receberSaldo' });
     const filtro = filtroStatusContas(tipo);
     if (filtro === 'pago') linhas = linhas.filter(linha => linha.pago);
@@ -2739,11 +2802,17 @@ async function carregarTelaContas(tipo) {
         const statusAtendimento = linha.pacienteId
             ? (tipo === 'receber' ? (linha.status || 'Agendado') : obterStatusAtendimentoDaLinhaFinanceira(linha, baseFinanceira))
             : '—';
-        const pagamento = montarControlePagamentoFinanceiro(linha, tipo, contaManual);
+        const pagamento = tipo === 'receber'
+            ? montarIndicadorPagamento(linha)
+            : montarControlePagamentoFinanceiro(linha, tipo, contaManual);
+        const controlePagamento = tipo === 'receber'
+            ? montarControlePagamentoFinanceiro(linha, tipo, contaManual)
+            : '';
         const acao = contaManual && !linha.recorrente ? `<button class="btn-perigo btn-conta-excluir" onclick="excluirContaManual('${linha.contaId}', '${tipo}')">Excluir</button>` : '';
-        return { linha, statusAtendimento, pagamento, acao };
+        return { linha, statusAtendimento, pagamento, controlePagamento, acao };
     });
-    lista.innerHTML = `${montarCardsFinanceirosMobile(detalhes)}<table class="tabela-relatorio"><thead><tr><th>Data</th><th>Paciente / Descrição</th><th>Categoria</th><th>Status do atendimento</th><th>Pagamento</th><th>Valor</th><th></th></tr></thead><tbody>${detalhes.map(({ linha, statusAtendimento, pagamento, acao }) => `<tr><td data-label="Data">${formatarDataBR(linha.dataObj)}</td><td data-label="Paciente / Descrição">${escaparHTML(linha.pacienteNome)}</td><td data-label="Categoria">${escaparHTML(linha.modalidade || '')}</td><td data-label="Status do atendimento">${escaparHTML(statusAtendimento)}</td><td data-label="Pagamento">${pagamento}</td><td data-label="Valor">${formatarMoeda(linha.valor)}</td><td class="celula-acoes-tabela">${acao}</td></tr>`).join('')}</tbody></table>`;
+    const tituloUltimaColuna = tipo === 'receber' ? 'Pago' : '';
+    lista.innerHTML = `${montarCardsFinanceirosMobile(detalhes)}<table class="tabela-relatorio"><thead><tr><th>Data</th><th>Paciente / Descrição</th><th>Categoria</th><th>Status do atendimento</th><th>Pagamento</th><th>Valor</th><th>${tituloUltimaColuna}</th></tr></thead><tbody>${detalhes.map(({ linha, statusAtendimento, pagamento, controlePagamento, acao }) => `<tr><td data-label="Data">${formatarDataBR(linha.dataObj)}</td><td data-label="Paciente / Descrição">${escaparHTML(linha.pacienteNome)}</td><td data-label="Categoria">${escaparHTML(linha.modalidade || '')}</td><td data-label="Status do atendimento">${escaparHTML(statusAtendimento)}</td><td data-label="Pagamento">${pagamento}</td><td data-label="Valor">${formatarMoeda(linha.valor)}</td><td data-label="Pago" class="celula-acoes-tabela">${controlePagamento}${acao}</td></tr>`).join('')}</tbody></table>`;
 }
 
 function alternarDescricaoContaPagarOcorrencia() {
