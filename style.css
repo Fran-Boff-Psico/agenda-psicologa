@@ -1100,6 +1100,35 @@ body.tela-abertura-ativa {
     white-space: nowrap;
 }
 
+.btn-whatsapp {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 1px solid #25d366;
+    border-radius: 6px;
+    padding: 11px 12px;
+    background: #128c4a;
+    color: #fff;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.btn-whatsapp:hover:not(:disabled) {
+    background: #0f7a40;
+}
+
+.btn-whatsapp:disabled {
+    opacity: 0.7;
+    cursor: wait;
+}
+
+.icone-whatsapp {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+}
+
 .texto-exportar-mobile {
     display: none;
 }
@@ -1635,6 +1664,16 @@ body.dark-theme .box-escopo-conta small {
 
     .texto-exportar-mobile {
         display: inline;
+    }
+
+    .relatorio-botoes-exportacao {
+        display: grid;
+        grid-template-columns: 1fr;
+    }
+
+    .relatorio-botoes-exportacao button {
+        width: 100%;
+        white-space: normal;
     }
 
     body {
