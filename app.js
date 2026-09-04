@@ -780,6 +780,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btnAplicarPeriodoPaciente')?.addEventListener('click', () => renderizarSidebarCalendarioPaciente(idPacienteEditando, true));
     document.getElementById('btnExportarRelatorio')?.addEventListener('click', exportarRelatorioFinanceiro);
     document.getElementById('btnExportarExcelRelatorio')?.addEventListener('click', exportarRelatorioExcel);
+    document.getElementById('btnEnviarWhatsAppRelatorio')?.addEventListener('click', enviarRelatorioViaWhatsApp);
     ['tipoRelatorio', 'filtroPacienteRelatorio', 'filtroPagamentoRelatorio', 'dataInicioRelatorio', 'dataFimRelatorio'].forEach(campoId => {
         document.getElementById(campoId)?.addEventListener('change', gerarRelatorioFinanceiro);
     });
@@ -3059,6 +3060,93 @@ async function criarPdfCompartilhavelCompleto() {
     const dados = coletarDadosPdfCompartilhavel();
     const logo = await converterLogoRelatorioEmJpeg(obterLogoRelatorioCompartilhavel());
     return { dados, pdf: criarPdfCompletoCompartilhavel(dados, logo) };
+}
+
+function baixarArquivoBlob(arquivo, nomeArquivo) {
+    const url = URL.createObjectURL(arquivo);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = nomeArquivo;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+async function enviarRelatorioViaWhatsApp() {
+    const resultado = document.getElementById('resultadoRelatorio');
+    if (!resultado?.querySelector('table')) {
+        alert('Aguarde a atualização do relatório antes de enviá-lo.');
+        return;
+    }
+
+    const botao = document.getElementById('btnEnviarWhatsAppRelatorio');
+    const rotulo = botao?.querySelector('span');
+    const textoOriginal = rotulo?.textContent || 'Enviar Arquivo';
+    const telaMobile = window.matchMedia?.('(max-width: 760px)').matches;
+    // No computador, a aba é aberta durante o clique para evitar bloqueio de pop-up
+    // enquanto o PDF está sendo preparado.
+    const abaWhatsApp = telaMobile ? null : window.open('', '_blank');
+    if (abaWhatsApp) {
+        abaWhatsApp.document.title = 'Preparando relatório';
+        abaWhatsApp.document.body.innerHTML = '<p style="font-family:Arial;padding:24px">Preparando o relatório para o WhatsApp...</p>';
+    }
+
+    if (botao) {
+        botao.disabled = true;
+        botao.setAttribute('aria-busy', 'true');
+    }
+    if (rotulo) rotulo.textContent = 'Preparando...';
+
+    try {
+        const relatorioPdf = await criarPdfCompartilhavelCompleto();
+        if (!relatorioPdf?.dados) throw new Error('Dados do relatório não disponíveis.');
+
+        const nomeArquivo = 'demonstrativo-financeiro-atendimentos.pdf';
+        const arquivoPdf = new File([relatorioPdf.pdf], nomeArquivo, { type: 'application/pdf' });
+        const mensagem = `Segue o Demonstrativo Financeiro de Atendimentos (${relatorioPdf.dados.inicioBR} a ${relatorioPdf.dados.fimBR}).`;
+
+        // No celular, o compartilhamento nativo leva o PDF diretamente ao WhatsApp:
+        // basta escolher WhatsApp, o contato e tocar em enviar.
+        const podeCompartilharArquivo = telaMobile && typeof navigator.share === 'function'
+            && (!navigator.canShare || navigator.canShare({ files: [arquivoPdf] }));
+        if (podeCompartilharArquivo) {
+            try {
+                await navigator.share({
+                    title: 'Demonstrativo Financeiro de Atendimentos',
+                    text: mensagem,
+                    files: [arquivoPdf]
+                });
+                return;
+            } catch (erro) {
+                if (erro?.name === 'AbortError') return;
+                console.warn('Compartilhamento de arquivo indisponível; usando alternativa do WhatsApp.', erro);
+            }
+        }
+
+        // O WhatsApp Web não permite que um site anexe arquivos automaticamente.
+        // Por isso no PC o PDF é baixado e o WhatsApp Web já abre para o contato.
+        baixarArquivoBlob(arquivoPdf, nomeArquivo);
+        const urlWhatsApp = `https://web.whatsapp.com/send?text=${encodeURIComponent(mensagem)}`;
+        if (telaMobile) {
+            window.location.assign(`https://api.whatsapp.com/send?text=${encodeURIComponent(mensagem)}`);
+        } else if (abaWhatsApp) {
+            abaWhatsApp.location.replace(urlWhatsApp);
+        } else {
+            window.open(urlWhatsApp, '_blank');
+        }
+        alert('O PDF foi baixado. No WhatsApp aberto, escolha o contato e anexe o arquivo baixado pelo ícone de clipe.');
+    } catch (erro) {
+        console.error('Não foi possível preparar o relatório para o WhatsApp.', erro);
+        if (abaWhatsApp && !abaWhatsApp.closed) abaWhatsApp.close();
+        alert('Não foi possível preparar o relatório PDF. Atualize o relatório e tente novamente.');
+    } finally {
+        if (botao) {
+            botao.disabled = false;
+            botao.removeAttribute('aria-busy');
+        }
+        if (rotulo) rotulo.textContent = textoOriginal;
+    }
 }
 
 async function exportarRelatorioFinanceiro() {
