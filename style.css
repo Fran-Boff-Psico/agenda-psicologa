@@ -369,6 +369,7 @@ body.tela-abertura-ativa {
 .financeiro-cabecalho h3 { margin: 0; font-size: 1.25rem; }
 .filtros-contas { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; }
 .filtros-contas input, .filtros-contas select { min-height: 38px; box-sizing: border-box; }
+.filtro-paciente-contas { min-width: 170px; }
 .filtros-contas .btn-secundario { width: auto; min-height: 38px; padding: 7px 12px; }
 .cards-financeiro { margin-bottom: 20px; }
 .card-saldo { background: #e8f7ed; border-color: #42a55c; }
@@ -383,6 +384,8 @@ body.tela-abertura-ativa {
 .acoes-formulario-conta .btn-secundario { width: auto; min-width: 172px; min-height: 42px; }
 .btn-conta-excluir { padding: 6px 9px; font-size: 0.75rem; }
 .checkbox-tabela { margin: 0; font-size: 0.78rem; }
+#listaContasReceber .tabela-relatorio th:last-child,
+#listaContasReceber .tabela-relatorio td:last-child { min-width: 76px; text-align: center; }
 
 .agenda-livre-cabecalho {
     display: flex;
