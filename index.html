@@ -44,6 +44,10 @@
             <button onclick="mostrarTela('contasPagar')">Contas a Pagar</button>
             <button onclick="mostrarTela('relatorios')">Relatórios</button>
         </div>
+        <button type="button" onclick="alternarSubmenuDocumentos()">Documentos</button>
+        <div id="submenuDocumentos" class="submenu-documentos">
+            <button type="button" onclick="abrirTermoCompromisso()">Termo de compromisso</button>
+        </div>
         <button onclick="mostrarTela('configuracoes')">Configurações</button>
     </div>
     <div class="mobile-menu-overlay" onclick="fecharMenuMobile()"></div>
@@ -349,6 +353,15 @@
                 <div class="acoes-formulario-conta"><button type="button" class="btn-principal" onclick="salvarContaManual('pagar')">Salvar conta a pagar</button><button type="button" class="btn-secundario" onclick="cancelarFormularioConta('pagar')">Cancelar</button></div>
             </div>
             <div id="listaContasPagar" class="resultado-relatorio"></div>
+        </div>
+
+        <div id="documentos" class="tela">
+            <div class="documentos-container">
+                <div class="documentos-cabecalho">
+                    <h3>Termo de compromisso</h3>
+                </div>
+                <iframe id="frameTermoCompromisso" class="frame-documento" title="Termo de compromisso" loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+            </div>
         </div>
 
         <div id="configuracoes" class="tela">
