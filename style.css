@@ -361,9 +361,12 @@ body.tela-abertura-ativa {
     color: white;
 }
 
-.submenu-financeiro { display: none; margin: 0 8% 8px; padding-left: 8px; border-left: 2px solid rgba(255,255,255,0.3); }
-.submenu-financeiro.aberto { display: block; }
-.sidebar-menu .submenu-financeiro button { width: 100%; margin: 2px 0; padding: 9px 10px; font-size: 0.86rem; }
+.submenu-financeiro,
+.submenu-documentos { display: none; margin: 0 8% 8px; padding-left: 8px; border-left: 2px solid rgba(255,255,255,0.3); }
+.submenu-financeiro.aberto,
+.submenu-documentos.aberto { display: block; }
+.sidebar-menu .submenu-financeiro button,
+.sidebar-menu .submenu-documentos button { width: 100%; margin: 2px 0; padding: 9px 10px; font-size: 0.86rem; }
 
 .financeiro-cabecalho { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-bottom: 20px; }
 .financeiro-cabecalho h3 { margin: 0; font-size: 1.25rem; }
@@ -872,6 +875,36 @@ body.tela-abertura-ativa {
 .form-container {
     padding: 25px;
     max-width: 820px;
+}
+
+.documentos-container {
+    padding: 20px;
+    border: 2px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--card-bg);
+}
+
+.documentos-cabecalho {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 16px;
+    text-align: center;
+}
+
+.documentos-cabecalho h3 {
+    margin: 0;
+    color: var(--text-dark);
+}
+
+.frame-documento {
+    display: block;
+    width: 100%;
+    height: calc(100vh - 220px);
+    min-height: 650px;
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+    background: #fff;
 }
 
 .perfil-form-cabecalho {
@@ -2009,6 +2042,15 @@ body.dark-theme .box-escopo-conta small {
     .financeiro-cabecalho {
         align-items: stretch;
         flex-direction: column;
+    }
+
+    .documentos-container {
+        padding: 14px;
+    }
+
+    .frame-documento {
+        height: 72svh;
+        min-height: 540px;
     }
 
     .modal-box {
