@@ -7,6 +7,7 @@ const SUBTITULO_PADRAO_CLINICA = 'CRP 07/42161';
 // Uma imagem escolhida em Configurações continua tendo prioridade sobre ela.
 const IMAGEM_PADRAO_ABERTURA = 'assets/logo-abertura-padrao.jpeg';
 const IMAGEM_LOGO_PRONTUARIO = 'assets/logo Prontuário.png';
+const URL_TERMO_COMPROMISSO = 'https://script.google.com/macros/s/AKfycbwk_djJIHZJ8pzVGHlFDMN1GUEc-63V_g6oetxjSCXIjPdJ-CSNsUF9a6aFzMKdaCIXgA/exec';
 
 let bancoDados;
 if (window.supabase) {
@@ -589,9 +590,33 @@ window.alternarSubmenuPacientes = alternarSubmenuPacientes;
 
 function alternarSubmenuFinanceiro() {
     const submenu = document.getElementById('submenuFinanceiro');
+    const submenuDocumentos = document.getElementById('submenuDocumentos');
+    if (submenuDocumentos) submenuDocumentos.classList.remove('aberto');
     if (submenu) submenu.classList.toggle('aberto');
 }
 window.alternarSubmenuFinanceiro = alternarSubmenuFinanceiro;
+
+function alternarSubmenuDocumentos() {
+    const submenu = document.getElementById('submenuDocumentos');
+    const submenuFinanceiro = document.getElementById('submenuFinanceiro');
+    if (submenuFinanceiro) submenuFinanceiro.classList.remove('aberto');
+    if (submenu) submenu.classList.toggle('aberto');
+}
+window.alternarSubmenuDocumentos = alternarSubmenuDocumentos;
+
+function carregarTermoCompromisso() {
+    const frame = document.getElementById('frameTermoCompromisso');
+    if (frame && frame.dataset.carregado !== 'true') {
+        frame.src = URL_TERMO_COMPROMISSO;
+        frame.dataset.carregado = 'true';
+    }
+}
+
+function abrirTermoCompromisso() {
+    mostrarTela('documentos');
+    carregarTermoCompromisso();
+}
+window.abrirTermoCompromisso = abrirTermoCompromisso;
 
 function acionarMenuNovoPaciente() {
     idPacienteEditando = null;
@@ -650,6 +675,7 @@ function mostrarTela(nomeTela, opcoes = {}) {
         'relatorios': 'Relatórios',
         'contasReceber': 'Contas a Receber',
         'contasPagar': 'Contas a Pagar',
+        'documentos': 'Documentos',
         'novoPaciente': idPacienteEditando ? 'Perfil e Histórico Clínico' : 'Cadastro de Novo Paciente',
         'configuracoes': 'Configurações do Sistema'
     };
@@ -689,6 +715,9 @@ function mostrarTela(nomeTela, opcoes = {}) {
             break;
         case 'configuracoes':
             carregarConfiguracoesCampos();
+            break;
+        case 'documentos':
+            carregarTermoCompromisso();
             break;
     }
 }
@@ -2347,12 +2376,14 @@ function obterStatusAtendimentoDaLinhaFinanceira(linha, base) {
     return plano ? 'Agendado' : '—';
 }
 
-function atualizarCardsFinanceiros(totais, pagar, ids = {}) {
-    const saldo = totais.previsto - pagar;
+function atualizarCardsFinanceiros(totais, pagarEmAberto, ids = {}, pagarConsideradoNoSaldo = pagarEmAberto) {
+    // Uma despesa continua comprometendo o saldo depois de marcada como paga.
+    // A marcação altera apenas a pendência, e não o custo financeiro do período.
+    const saldo = totais.previsto - pagarConsideradoNoSaldo;
     if (document.getElementById(ids.previsto || 'previsaoMesAtual')) document.getElementById(ids.previsto || 'previsaoMesAtual').innerText = formatarMoeda(totais.previsto);
     if (document.getElementById(ids.recebido || 'recebidosMesAtual')) document.getElementById(ids.recebido || 'recebidosMesAtual').innerText = formatarMoeda(totais.recebido);
     if (document.getElementById(ids.aberto || 'aReceberMesAtual')) document.getElementById(ids.aberto || 'aReceberMesAtual').innerText = formatarMoeda(totais.aReceber);
-    if (document.getElementById(ids.pagar || 'contasPagarMesAtual')) document.getElementById(ids.pagar || 'contasPagarMesAtual').innerText = formatarMoeda(pagar);
+    if (document.getElementById(ids.pagar || 'contasPagarMesAtual')) document.getElementById(ids.pagar || 'contasPagarMesAtual').innerText = formatarMoeda(pagarEmAberto);
     if (document.getElementById(ids.saldo || 'saldoMesAtual')) document.getElementById(ids.saldo || 'saldoMesAtual').innerText = formatarMoeda(saldo);
 }
 
@@ -2388,8 +2419,9 @@ async function atualizarIndicadoresFinanceirosDashboard() {
         const contasPagar = filtrarContasDePacientesAtivos(contasNoPeriodo('pagar', periodo.inicio, periodo.fim, base), base);
         const ocorrencias = montarOcorrenciasFinanceiras(base, periodo.inicio, periodo.fim).concat(transformarContasReceberEmLinhas(contasReceber));
         const totais = calcularTotaisFinanceiros(ocorrencias);
-        const pagar = totalizarContas(contasPagar, true);
-        atualizarCardsFinanceiros(totais, pagar);
+        const pagarEmAberto = totalizarContas(contasPagar, true);
+        const pagarConsideradoNoSaldo = totalizarContas(contasPagar);
+        atualizarCardsFinanceiros(totais, pagarEmAberto, {}, pagarConsideradoNoSaldo);
         atualizarTitulosDashboardPorPeriodo();
     } catch (err) {
         console.error(err);
@@ -2696,13 +2728,12 @@ function preencherFiltroPacienteContasReceber(pacientes = []) {
     if (!seletor) return;
 
     const selecionado = seletor.value;
-    const pacientesAtivos = pacientes
-        .filter(paciente => paciente.status !== 'Inativo')
+    const pacientesOrdenados = pacientes
         .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
-    seletor.innerHTML = `<option value="">Todos os pacientes</option>${pacientesAtivos
-        .map(paciente => `<option value="${escaparHTML(paciente.id)}">${escaparHTML(paciente.nome || 'Paciente sem nome')}</option>`)
+    seletor.innerHTML = `<option value="">Todos os pacientes</option>${pacientesOrdenados
+        .map(paciente => `<option value="${escaparHTML(paciente.id)}">${escaparHTML((paciente.nome || 'Paciente sem nome') + (paciente.status === 'Inativo' ? ' (Inativo)' : ''))}</option>`)
         .join('')}`;
-    if (pacientesAtivos.some(paciente => String(paciente.id) === String(selecionado))) {
+    if (pacientesOrdenados.some(paciente => String(paciente.id) === String(selecionado))) {
         seletor.value = selecionado;
     }
 }
@@ -2767,19 +2798,29 @@ async function carregarTelaContas(tipo) {
     const lista = document.getElementById(tipo === 'pagar' ? 'listaContasPagar' : 'listaContasReceber');
     if (!lista) return;
     let totais = { previsto: 0, recebido: 0, aReceber: 0 };
-    let pagar = totalizarContas(contasNoPeriodo('pagar', periodo.inicio, periodo.fim), true);
+    let pagarEmAberto = totalizarContas(contasNoPeriodo('pagar', periodo.inicio, periodo.fim), true);
+    let pagarConsideradoNoSaldo = totalizarContas(contasNoPeriodo('pagar', periodo.inicio, periodo.fim));
     let linhas = [];
     let baseFinanceira = null;
     if (bancoDados) {
         baseFinanceira = await buscarBaseFinanceira();
         if (tipo === 'receber') preencherFiltroPacienteContasReceber(baseFinanceira.pacientes || []);
-        const contasReceberAtivas = filtrarContasDePacientesAtivos(contasNoPeriodo('receber', periodo.inicio, periodo.fim, baseFinanceira), baseFinanceira);
-        const contasPagarAtivas = filtrarContasDePacientesAtivos(contasNoPeriodo('pagar', periodo.inicio, periodo.fim, baseFinanceira), baseFinanceira);
-        const contasTipoAtivas = tipo === 'pagar' ? contasPagarAtivas : contasReceberAtivas;
-        const ocorrencias = montarOcorrenciasFinanceiras(baseFinanceira, periodo.inicio, periodo.fim).concat(transformarContasReceberEmLinhas(contasReceberAtivas));
+        // Contas a Receber é uma consulta financeira histórica: conserva as
+        // sessões e os saldos de pacientes inativos em datas já passadas.
+        // Contas a Pagar mantém a regra anterior de considerar apenas pacientes ativos.
+        const contasReceberDoPeriodo = tipo === 'receber'
+            ? filtrarContasParaRelatorio(contasNoPeriodo('receber', periodo.inicio, periodo.fim, baseFinanceira), baseFinanceira)
+            : filtrarContasDePacientesAtivos(contasNoPeriodo('receber', periodo.inicio, periodo.fim, baseFinanceira), baseFinanceira);
+        const contasPagarDoPeriodo = tipo === 'receber'
+            ? filtrarContasParaRelatorio(contasNoPeriodo('pagar', periodo.inicio, periodo.fim, baseFinanceira), baseFinanceira)
+            : filtrarContasDePacientesAtivos(contasNoPeriodo('pagar', periodo.inicio, periodo.fim, baseFinanceira), baseFinanceira);
+        const contasTipoDoPeriodo = tipo === 'pagar' ? contasPagarDoPeriodo : contasReceberDoPeriodo;
+        const ocorrencias = montarOcorrenciasFinanceiras(baseFinanceira, periodo.inicio, periodo.fim, '', tipo === 'receber')
+            .concat(transformarContasReceberEmLinhas(contasReceberDoPeriodo));
         totais = calcularTotaisFinanceiros(ocorrencias);
-        pagar = totalizarContas(contasPagarAtivas, true);
-        linhas = tipo === 'receber' ? ocorrencias : transformarContasPagarEmLinhas(contasTipoAtivas);
+        pagarEmAberto = totalizarContas(contasPagarDoPeriodo, true);
+        pagarConsideradoNoSaldo = totalizarContas(contasPagarDoPeriodo);
+        linhas = tipo === 'receber' ? ocorrencias : transformarContasPagarEmLinhas(contasTipoDoPeriodo);
     } else {
         linhas = tipo === 'receber' ? transformarContasReceberEmLinhas(contasTipo) : transformarContasPagarEmLinhas(contasTipo);
     }
@@ -2792,7 +2833,7 @@ async function carregarTelaContas(tipo) {
     }
     if (tipo === 'receber') totais = calcularTotaisFinanceiros(linhas);
 
-    atualizarCardsFinanceiros(totais, pagar, tipo === 'pagar' ? { pagar: 'pagarTotal', saldo: 'pagarSaldo' } : { previsto: 'receberPrevisto', recebido: 'receberRecebido', aberto: 'receberAberto', pagar: 'receberPagar', saldo: 'receberSaldo' });
+    atualizarCardsFinanceiros(totais, pagarEmAberto, tipo === 'pagar' ? { pagar: 'pagarTotal', saldo: 'pagarSaldo' } : { previsto: 'receberPrevisto', recebido: 'receberRecebido', aberto: 'receberAberto', pagar: 'receberPagar', saldo: 'receberSaldo' }, pagarConsideradoNoSaldo);
     const filtro = filtroStatusContas(tipo);
     if (filtro === 'pago') linhas = linhas.filter(linha => linha.pago);
     if (filtro === 'aberto') linhas = linhas.filter(linha => !linha.pago);
