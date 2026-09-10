@@ -24,9 +24,9 @@
     --bg-status-falta: #fce8e6;
     --text-status-falta: #c5221f;
     --border-status-falta: #f5c2c7;
-    --bg-status-cancelado: #fafafa;
-    --text-status-cancelado: #9e9e9e;
-    --border-status-cancelado: #e0e0e0;
+    --bg-status-cancelado: #fce8e6;
+    --text-status-cancelado: #c5221f;
+    --border-status-cancelado: #f5c2c7;
 }
 
 body.dark-theme {
@@ -54,9 +54,9 @@ body.dark-theme {
     --bg-status-falta: #450a0a;
     --text-status-falta: #fca5a5;
     --border-status-falta: #7f1d1d;
-    --bg-status-cancelado: #111827;
-    --text-status-cancelado: #6b7280;
-    --border-status-cancelado: #1f2937;
+    --bg-status-cancelado: #450a0a;
+    --text-status-cancelado: #fca5a5;
+    --border-status-cancelado: #7f1d1d;
 }
 
 * {
@@ -362,10 +362,13 @@ body.tela-abertura-ativa {
 }
 
 .submenu-financeiro,
+.submenu-relatorios,
 .submenu-documentos { display: none; margin: 0 8% 8px; padding-left: 8px; border-left: 2px solid rgba(255,255,255,0.3); }
 .submenu-financeiro.aberto,
+.submenu-relatorios.aberto,
 .submenu-documentos.aberto { display: block; }
 .sidebar-menu .submenu-financeiro button,
+.sidebar-menu .submenu-relatorios button,
 .sidebar-menu .submenu-documentos button { width: 100%; margin: 2px 0; padding: 9px 10px; font-size: 0.86rem; }
 
 .financeiro-cabecalho { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-bottom: 20px; }
@@ -897,6 +900,30 @@ body.tela-abertura-ativa {
     color: var(--text-dark);
 }
 
+.secao-historico-logs[hidden],
+#secaoTermoCompromisso[hidden] {
+    display: none;
+}
+
+.filtros-logs {
+    display: flex;
+    align-items: end;
+    gap: 10px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.filtros-logs .form-group {
+    margin: 0;
+    min-width: 180px;
+    flex: 1 1 180px;
+}
+
+.filtros-logs .btn-principal {
+    width: auto;
+    min-height: 40px;
+}
+
 .frame-documento {
     display: block;
     width: 100%;
@@ -1119,6 +1146,23 @@ body.tela-abertura-ativa {
     max-width: 1180px;
 }
 
+.filtros-historico-agendamentos .form-group {
+    min-width: 165px;
+}
+
+.historico-agendamentos-acoes {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+}
+
+.historico-agendamentos-acoes button {
+    width: auto;
+    flex: 1 1 170px;
+}
+
 .relatorio-botao-grupo {
     justify-content: flex-end;
 }
@@ -1313,6 +1357,11 @@ body.tela-abertura-ativa {
 .btn-periodo {
     width: 100%;
     padding: 8px 12px;
+}
+
+.btn-agendamento-extra {
+    margin-top: 10px;
+    padding: 9px 12px;
 }
 
 .aviso-periodo {
@@ -2046,6 +2095,21 @@ body.dark-theme .box-escopo-conta small {
 
     .documentos-container {
         padding: 14px;
+    }
+
+    .filtros-logs {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .filtros-logs .form-group,
+    .filtros-logs .btn-principal,
+    .historico-agendamentos-acoes button {
+        width: 100%;
+    }
+
+    .historico-agendamentos-acoes {
+        flex-direction: column;
     }
 
     .frame-documento {
