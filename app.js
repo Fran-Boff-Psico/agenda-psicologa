@@ -628,16 +628,12 @@ function carregarTermoCompromisso() {
 
 function abrirTermoCompromisso() {
     mostrarTela('documentos');
-    document.getElementById('secaoTermoCompromisso')?.removeAttribute('hidden');
-    document.getElementById('secaoHistoricoLogs')?.setAttribute('hidden', '');
     carregarTermoCompromisso();
 }
 window.abrirTermoCompromisso = abrirTermoCompromisso;
 
 function abrirHistoricoLogs() {
-    mostrarTela('documentos');
-    document.getElementById('secaoTermoCompromisso')?.setAttribute('hidden', '');
-    document.getElementById('secaoHistoricoLogs')?.removeAttribute('hidden');
+    mostrarTela('consultaLogs');
     carregarHistoricoLogs();
 }
 window.abrirHistoricoLogs = abrirHistoricoLogs;
@@ -822,6 +818,7 @@ function mostrarTela(nomeTela, opcoes = {}) {
         'pacientes': 'Pacientes',
         'relatorios': 'Relatórios',
         'historicoAgendamentos': 'Histórico de Agendamentos',
+        'consultaLogs': 'Consulta de Logs',
         'contasReceber': 'Contas a Receber',
         'contasPagar': 'Contas a Pagar',
         'documentos': 'Documentos',
@@ -849,6 +846,9 @@ function mostrarTela(nomeTela, opcoes = {}) {
         case 'historicoAgendamentos':
             carregarTelaHistoricoAgendamentos();
             break;
+        case 'consultaLogs':
+            carregarHistoricoLogs();
+            break;
         case 'contasReceber':
             carregarTelaContas('receber');
             break;
@@ -869,8 +869,7 @@ function mostrarTela(nomeTela, opcoes = {}) {
             carregarConfiguracoesCampos();
             break;
         case 'documentos':
-            if (!document.getElementById('secaoHistoricoLogs')?.hasAttribute('hidden')) carregarHistoricoLogs();
-            else carregarTermoCompromisso();
+            carregarTermoCompromisso();
             break;
     }
 }
