@@ -712,7 +712,10 @@ function mostrarResultadoLogs(logs, mensagem = '') {
         <table class="tabela-relatorio tabela-logs"><thead><tr><th>Data e hora</th><th>Ação</th><th>Paciente</th><th>Detalhes</th></tr></thead><tbody>
         ${logs.map(log => {
             const quando = log.criado_em ? new Date(log.criado_em).toLocaleString('pt-BR') : '--';
-            return `<tr><td data-label="Data e hora">${escaparHTML(quando)}</td><td data-label="Ação">${escaparHTML(log.acao || '')}</td><td data-label="Paciente">${escaparHTML(log.paciente_nome || '—')}</td><td data-label="Detalhes">${escaparHTML(log.detalhes || '—')}</td></tr>`;
+            const detalhes = log.entidade === 'agendamento' && log.dados_antes && log.dados_depois
+                ? detalhesAlteracaoAgendamento(log.dados_antes, log.dados_depois, log.dados_depois.escopo || 'somente')
+                : (log.detalhes || '—');
+            return `<tr><td data-label="Data e hora">${escaparHTML(quando)}</td><td data-label="Ação">${escaparHTML(log.acao || '')}</td><td data-label="Paciente">${escaparHTML(log.paciente_nome || '—')}</td><td data-label="Detalhes">${escaparHTML(detalhes)}</td></tr>`;
         }).join('')}</tbody></table>`;
 }
 
@@ -2464,6 +2467,35 @@ async function renderizarSidebarCalendarioPaciente(pacienteId, manterPeriodoAtua
     }
 }
 
+function normalizarHorarioParaLog(hora) {
+    return String(hora || '').substring(0, 5);
+}
+
+function detalhesAlteracaoAgendamento(dadosAntes, dadosDepois, escopo) {
+    if (escopo !== 'somente') {
+        return `Cronograma atualizado a partir de ${formatarDataBR(criarDataLocal(dadosDepois.data))}.`;
+    }
+    const antes = dadosAntes || {};
+    const alteracoes = [];
+    if (String(antes.data || '') !== String(dadosDepois.data || '')) {
+        alteracoes.push(`Data: ${formatarDataBR(criarDataLocal(antes.data))} → ${formatarDataBR(criarDataLocal(dadosDepois.data))}`);
+    }
+    if (normalizarHorarioParaLog(antes.hora) !== normalizarHorarioParaLog(dadosDepois.hora)) {
+        alteracoes.push(`Hora: ${normalizarHorarioParaLog(antes.hora) || '--:--'} → ${normalizarHorarioParaLog(dadosDepois.hora) || '--:--'}`);
+    }
+    if (String(antes.modalidade || '') !== String(dadosDepois.modalidade || '')) {
+        alteracoes.push(`Modalidade: ${antes.modalidade || '—'} → ${dadosDepois.modalidade || '—'}`);
+    }
+    if (Number(antes.valor || 0) !== Number(dadosDepois.valor || 0)) {
+        alteracoes.push(`Valor: ${formatarMoeda(antes.valor || 0)} → ${formatarMoeda(dadosDepois.valor || 0)}`);
+    }
+    if (String(antes.status || '') !== String(dadosDepois.status || '')) {
+        alteracoes.push(`Status: ${antes.status || '—'} → ${dadosDepois.status || '—'}`);
+    }
+    const dataReferencia = dadosDepois.data || antes.data;
+    return `Sessão de ${formatarDataBR(criarDataLocal(dataReferencia))}: ${alteracoes.join(' | ') || 'dados confirmados sem alteração de campos.'}.`;
+}
+
 async function executarSalvamentoPorEscopo(pacienteId, dataOriginalISO, novaDataISO, novaHora, novaMod, novoVal, statusSessao, escopo, novaFreq) {
     if (!bancoDados) return false;
     try {
@@ -2516,17 +2548,16 @@ async function executarSalvamentoPorEscopo(pacienteId, dataOriginalISO, novaData
             await bancoDados.from('agendamentos').delete().eq('paciente_id', pacienteId).gte('data', dataOriginalISO);
         }
         const pacienteNome = await obterNomePacienteParaLog(pacienteId);
+        const dadosDepoisLog = { data: novaDataISO, hora: novaHora, modalidade: novaMod, valor: novoVal, status: statusSessao, frequencia: novaFreq, escopo };
         await registrarLogSistema({
             acao: escopo === 'somente' ? 'Agendamento alterado' : 'Cronograma do paciente alterado',
             entidade: escopo === 'somente' ? 'agendamento' : 'plano_atendimento',
             entidadeId: pacienteId,
             pacienteId,
             pacienteNome,
-            detalhes: escopo === 'somente'
-                ? `Sessão de ${formatarDataBR(criarDataLocal(dataOriginalISO))} alterada para ${formatarDataBR(criarDataLocal(novaDataISO))} às ${novaHora.substring(0, 5)}.`
-                : `Cronograma atualizado a partir de ${formatarDataBR(criarDataLocal(novaDataISO))}.`,
+            detalhes: detalhesAlteracaoAgendamento(dadosAntes, dadosDepoisLog, escopo),
             dadosAntes,
-            dadosDepois: { data: novaDataISO, hora: novaHora, modalidade: novaMod, valor: novoVal, status: statusSessao, frequencia: novaFreq, escopo }
+            dadosDepois: dadosDepoisLog
         });
         alert('Modificações salvas com sucesso!');
         return true;
