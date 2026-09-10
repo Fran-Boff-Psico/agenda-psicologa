@@ -43,6 +43,9 @@ let sincronizacaoFinanceiraEmAndamento = null;
 let ultimaSincronizacaoFinanceira = 0;
 let verificacaoFinanceiraIniciada = false;
 let filtroAgendaAtivo = null;
+let modoModalAgendamento = 'editar';
+let ultimoHistoricoAgendamentos = null;
+const CHAVE_LOGS_LOCAIS = 'agenda_logs_sistema_v1';
 const canalFinanceiro = typeof BroadcastChannel !== 'undefined'
     ? new BroadcastChannel('agenda-psicologa-financeiro')
     : null;
@@ -588,19 +591,30 @@ function alternarSubmenuPacientes() {
 }
 window.alternarSubmenuPacientes = alternarSubmenuPacientes;
 
+function fecharSubmenusNavegacao(excetoId = '') {
+    ['submenuFinanceiro', 'submenuRelatorios', 'submenuDocumentos'].forEach(id => {
+        if (id !== excetoId) document.getElementById(id)?.classList.remove('aberto');
+    });
+}
+
 function alternarSubmenuFinanceiro() {
     const submenu = document.getElementById('submenuFinanceiro');
-    const submenuDocumentos = document.getElementById('submenuDocumentos');
-    if (submenuDocumentos) submenuDocumentos.classList.remove('aberto');
-    if (submenu) submenu.classList.toggle('aberto');
+    fecharSubmenusNavegacao('submenuFinanceiro');
+    submenu?.classList.toggle('aberto');
 }
 window.alternarSubmenuFinanceiro = alternarSubmenuFinanceiro;
 
+function alternarSubmenuRelatorios() {
+    const submenu = document.getElementById('submenuRelatorios');
+    fecharSubmenusNavegacao('submenuRelatorios');
+    submenu?.classList.toggle('aberto');
+}
+window.alternarSubmenuRelatorios = alternarSubmenuRelatorios;
+
 function alternarSubmenuDocumentos() {
     const submenu = document.getElementById('submenuDocumentos');
-    const submenuFinanceiro = document.getElementById('submenuFinanceiro');
-    if (submenuFinanceiro) submenuFinanceiro.classList.remove('aberto');
-    if (submenu) submenu.classList.toggle('aberto');
+    fecharSubmenusNavegacao('submenuDocumentos');
+    submenu?.classList.toggle('aberto');
 }
 window.alternarSubmenuDocumentos = alternarSubmenuDocumentos;
 
@@ -614,9 +628,143 @@ function carregarTermoCompromisso() {
 
 function abrirTermoCompromisso() {
     mostrarTela('documentos');
+    document.getElementById('secaoTermoCompromisso')?.removeAttribute('hidden');
+    document.getElementById('secaoHistoricoLogs')?.setAttribute('hidden', '');
     carregarTermoCompromisso();
 }
 window.abrirTermoCompromisso = abrirTermoCompromisso;
+
+function abrirHistoricoLogs() {
+    mostrarTela('documentos');
+    document.getElementById('secaoTermoCompromisso')?.setAttribute('hidden', '');
+    document.getElementById('secaoHistoricoLogs')?.removeAttribute('hidden');
+    carregarHistoricoLogs();
+}
+window.abrirHistoricoLogs = abrirHistoricoLogs;
+
+function obterLogsLocais() {
+    try {
+        const dados = JSON.parse(localStorage.getItem(CHAVE_LOGS_LOCAIS) || '[]');
+        return Array.isArray(dados) ? dados : [];
+    } catch (_) {
+        return [];
+    }
+}
+
+function salvarLogLocal(registro) {
+    const logs = obterLogsLocais();
+    logs.unshift(registro);
+    localStorage.setItem(CHAVE_LOGS_LOCAIS, JSON.stringify(logs.slice(0, 300)));
+}
+
+async function obterNomePacienteParaLog(pacienteId) {
+    if (!pacienteId || !bancoDados) return '';
+    try {
+        const { data, error } = await bancoDados.from('pacientes').select('nome').eq('id', pacienteId);
+        if (error) throw error;
+        return data?.[0]?.nome || '';
+    } catch (_) {
+        return '';
+    }
+}
+
+async function registrarLogSistema(evento) {
+    const registro = {
+        criado_em: new Date().toISOString(),
+        acao: evento.acao || 'Alteração registrada',
+        entidade: evento.entidade || 'sistema',
+        entidade_id: String(evento.entidadeId || ''),
+        paciente_id: evento.pacienteId || null,
+        paciente_nome: evento.pacienteNome || '',
+        detalhes: evento.detalhes || '',
+        dados_antes: evento.dadosAntes || null,
+        dados_depois: evento.dadosDepois || null
+    };
+    salvarLogLocal(registro);
+    if (!bancoDados) return;
+    try {
+        const { error } = await bancoDados.from('logs_sistema').insert([registro]);
+        if (error) throw error;
+    } catch (erro) {
+        // O registro local evita perder o evento no dispositivo enquanto a tabela
+        // de logs ainda não foi criada no Supabase.
+        console.warn('Histórico remoto ainda não disponível.', erro);
+    }
+}
+
+async function preencherFiltroPacientesLogs() {
+    const select = document.getElementById('logPaciente');
+    if (!select || !bancoDados) return;
+    const valorSelecionado = select.value;
+    const { data, error } = await bancoDados.from('pacientes').select('id, nome, status').order('nome');
+    if (error) throw error;
+    select.innerHTML = '<option value="">Todos os pacientes</option>' + (data || []).map(paciente => {
+        const sufixo = paciente.status === 'Inativo' ? ' (Inativo)' : '';
+        return `<option value="${paciente.id}">${escaparHTML((paciente.nome || 'Paciente sem nome') + sufixo)}</option>`;
+    }).join('');
+    select.value = valorSelecionado;
+}
+
+function mostrarResultadoLogs(logs, mensagem = '') {
+    const resultado = document.getElementById('resultadoLogs');
+    if (!resultado) return;
+    if (!logs.length) {
+        resultado.innerHTML = mensagem || 'Nenhum log encontrado para os filtros selecionados.';
+        return;
+    }
+    resultado.innerHTML = `${mensagem ? `<p class="mensagem-logs">${escaparHTML(mensagem)}</p>` : ''}
+        <table class="tabela-relatorio tabela-logs"><thead><tr><th>Data e hora</th><th>Ação</th><th>Paciente</th><th>Detalhes</th></tr></thead><tbody>
+        ${logs.map(log => {
+            const quando = log.criado_em ? new Date(log.criado_em).toLocaleString('pt-BR') : '--';
+            return `<tr><td data-label="Data e hora">${escaparHTML(quando)}</td><td data-label="Ação">${escaparHTML(log.acao || '')}</td><td data-label="Paciente">${escaparHTML(log.paciente_nome || '—')}</td><td data-label="Detalhes">${escaparHTML(log.detalhes || '—')}</td></tr>`;
+        }).join('')}</tbody></table>`;
+}
+
+async function carregarHistoricoLogs() {
+    const inicioInput = document.getElementById('logInicio');
+    const fimInput = document.getElementById('logFim');
+    const pacienteInput = document.getElementById('logPaciente');
+    const resultado = document.getElementById('resultadoLogs');
+    if (!inicioInput || !fimInput || !pacienteInput || !resultado) return;
+    const periodo = obterPeriodoMesAtual();
+    if (!inicioInput.value) inicioInput.value = formatarDataISO(periodo.inicio);
+    if (!fimInput.value) fimInput.value = formatarDataISO(periodo.fim);
+    resultado.innerHTML = 'Carregando histórico...';
+
+    try {
+        await preencherFiltroPacientesLogs();
+        const inicio = criarDataLocal(inicioInput.value);
+        const fim = criarDataLocal(fimInput.value);
+        if (!inicio || !fim) throw new Error('Informe um período válido.');
+        const inicioOrdenado = inicio <= fim ? inicio : fim;
+        const fimOrdenado = inicio <= fim ? fim : inicio;
+        inicioInput.value = formatarDataISO(inicioOrdenado);
+        fimInput.value = formatarDataISO(fimOrdenado);
+        const proximoDia = adicionarDias(fimOrdenado, 1);
+        let consulta = bancoDados.from('logs_sistema')
+            .select('id, criado_em, acao, entidade, entidade_id, paciente_id, paciente_nome, detalhes, dados_antes, dados_depois')
+            .gte('criado_em', `${formatarDataISO(inicioOrdenado)}T00:00:00`)
+            .lt('criado_em', `${formatarDataISO(proximoDia)}T00:00:00`)
+            .order('criado_em', { ascending: false })
+            .limit(500);
+        if (pacienteInput.value) consulta = consulta.eq('paciente_id', pacienteInput.value);
+        const { data, error } = await consulta;
+        if (error) throw error;
+        mostrarResultadoLogs(data || []);
+    } catch (erro) {
+        console.warn('Não foi possível carregar o histórico remoto.', erro);
+        const logsLocais = obterLogsLocais().filter(log => {
+            const dataLog = String(log.criado_em || '').slice(0, 10);
+            return dataLog >= inicioInput.value && dataLog <= fimInput.value
+                && (!pacienteInput.value || String(log.paciente_id || '') === String(pacienteInput.value));
+        });
+        const tabelaNaoConfigurada = String(erro?.code || '') === '42P01' || String(erro?.code || '') === 'PGRST205';
+        const mensagem = tabelaNaoConfigurada
+            ? 'O histórico remoto ainda precisa ser ativado no Supabase com o arquivo supabase-logs.sql. Os eventos deste dispositivo aparecem abaixo quando existirem.'
+            : 'Não foi possível consultar o histórico remoto. Exibindo os eventos guardados neste dispositivo.';
+        mostrarResultadoLogs(logsLocais, mensagem);
+    }
+}
 
 function acionarMenuNovoPaciente() {
     idPacienteEditando = null;
@@ -673,6 +821,7 @@ function mostrarTela(nomeTela, opcoes = {}) {
         'agendaLivre': 'Agenda Livre',
         'pacientes': 'Pacientes',
         'relatorios': 'Relatórios',
+        'historicoAgendamentos': 'Histórico de Agendamentos',
         'contasReceber': 'Contas a Receber',
         'contasPagar': 'Contas a Pagar',
         'documentos': 'Documentos',
@@ -697,6 +846,9 @@ function mostrarTela(nomeTela, opcoes = {}) {
         case 'relatorios':
             carregarTelaRelatorios();
             break;
+        case 'historicoAgendamentos':
+            carregarTelaHistoricoAgendamentos();
+            break;
         case 'contasReceber':
             carregarTelaContas('receber');
             break;
@@ -717,7 +869,8 @@ function mostrarTela(nomeTela, opcoes = {}) {
             carregarConfiguracoesCampos();
             break;
         case 'documentos':
-            carregarTermoCompromisso();
+            if (!document.getElementById('secaoHistoricoLogs')?.hasAttribute('hidden')) carregarHistoricoLogs();
+            else carregarTermoCompromisso();
             break;
     }
 }
@@ -810,6 +963,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btnExportarRelatorio')?.addEventListener('click', exportarRelatorioFinanceiro);
     document.getElementById('btnExportarExcelRelatorio')?.addEventListener('click', exportarRelatorioExcel);
     document.getElementById('btnEnviarWhatsAppRelatorio')?.addEventListener('click', enviarRelatorioViaWhatsApp);
+    document.getElementById('btnConsultarHistoricoAgendamentos')?.addEventListener('click', gerarHistoricoAgendamentos);
+    document.getElementById('btnExportarPdfHistoricoAgendamentos')?.addEventListener('click', exportarPdfHistoricoAgendamentos);
+    document.getElementById('btnExportarExcelHistoricoAgendamentos')?.addEventListener('click', exportarExcelHistoricoAgendamentos);
+    document.getElementById('btnEnviarWhatsAppHistoricoAgendamentos')?.addEventListener('click', enviarHistoricoAgendamentosViaWhatsApp);
+    document.getElementById('btnConsultarLogs')?.addEventListener('click', carregarHistoricoLogs);
     document.getElementById('filtroReceberPaciente')?.addEventListener('change', () => carregarTelaContas('receber'));
     ['tipoRelatorio', 'filtroPacienteRelatorio', 'filtroPagamentoRelatorio', 'dataInicioRelatorio', 'dataFimRelatorio'].forEach(campoId => {
         document.getElementById(campoId)?.addEventListener('change', gerarRelatorioFinanceiro);
@@ -1258,9 +1416,12 @@ window.abrirEditorDiretoAgenda = function(pacienteId, dataISO, hora, modalidade,
     const modal = document.getElementById('modalAgendamento');
     if (!modal) return;
 
+    modoModalAgendamento = 'editar';
     document.getElementById('modalAgendamentoTitulo').innerText = 'Editar ocorrência';
     document.getElementById('containerSelectPacienteAgendamento').style.display = 'none';
     document.getElementById('boxEscopoAgenda').style.display = 'block';
+    document.getElementById('modalLinhaFrequencia').style.display = 'flex';
+    document.getElementById('btnAbrirProntuario').style.display = '';
     document.getElementById('escopoModificacaoAgenda').value = 'somente';
 
     document.getElementById('selectPacienteAgendamento').value = pacienteId;
@@ -1311,6 +1472,111 @@ window.abrirEditorDiretoAgenda = function(pacienteId, dataISO, hora, modalidade,
         renderizarSidebarCalendarioPaciente(idPacienteEditando, true);
     };
 
+    modal.style.display = 'flex';
+};
+
+function limparCamposContaPagarOcorrencia() {
+    const campos = {
+        contaPagarOcorrenciaCategoria: '',
+        contaPagarOcorrenciaDescricao: '',
+        contaPagarOcorrenciaValor: ''
+    };
+    Object.entries(campos).forEach(([id, valor]) => {
+        const campo = document.getElementById(id);
+        if (campo) campo.value = valor;
+    });
+    const campoPago = document.getElementById('contaPagarOcorrenciaPago');
+    if (campoPago) campoPago.checked = false;
+    const escopo = document.getElementById('escopoContaPagarOcorrencia');
+    if (escopo) escopo.value = 'somente';
+    alternarDescricaoContaPagarOcorrencia();
+}
+
+window.abrirAgendamentoExtraPaciente = function() {
+    if (!idPacienteEditando || !bancoDados) {
+        alert('Abra primeiro o perfil de um paciente para inserir um agendamento extra.');
+        return;
+    }
+    if (document.getElementById('statusVinculo')?.value === 'Inativo') {
+        alert('Não é possível criar um novo agendamento para paciente inativo.');
+        return;
+    }
+
+    const modal = document.getElementById('modalAgendamento');
+    if (!modal) return;
+    modoModalAgendamento = 'extra';
+    const dataPadrao = formatarDataISO(normalizarData(new Date()));
+    const horaPadrao = document.getElementById('horario')?.value || '';
+    const modalidadePadrao = document.getElementById('modalidade')?.value || 'Presencial';
+    const valorPadrao = Number(document.getElementById('valor')?.value || 0);
+    const frequenciaPadrao = document.getElementById('frequencia')?.value || 'Semanal';
+
+    document.getElementById('modalAgendamentoTitulo').innerText = 'Inserir agendamento extra';
+    document.getElementById('containerSelectPacienteAgendamento').style.display = 'none';
+    document.getElementById('boxEscopoAgenda').style.display = 'none';
+    document.getElementById('modalLinhaFrequencia').style.display = 'none';
+    document.getElementById('btnAbrirProntuario').style.display = 'none';
+    document.getElementById('selectPacienteAgendamento').value = idPacienteEditando;
+    document.getElementById('dataAgendamento').value = dataPadrao;
+    document.getElementById('horaAgendamento').value = horaPadrao;
+    document.getElementById('modalidadeAgendamento').value = modalidadePadrao;
+    document.getElementById('valorAgendamento').value = valorPadrao;
+    document.getElementById('statusAgendamento').value = 'Agendado';
+    document.getElementById('valorOcorrenciaPago').checked = false;
+    const campoFrequencia = document.getElementById('frequenciaAgendamento');
+    if (campoFrequencia) {
+        campoFrequencia.value = frequenciaPadrao;
+        campoFrequencia.dataset.original = frequenciaPadrao;
+    }
+    limparCamposContaPagarOcorrencia();
+
+    document.getElementById('btnPersistirAgendamento').onclick = async function() {
+        const novaData = document.getElementById('dataAgendamento').value;
+        const novaHora = document.getElementById('horaAgendamento').value;
+        const novaMod = document.getElementById('modalidadeAgendamento').value;
+        const novoVal = Number(document.getElementById('valorAgendamento').value || 0);
+        const novoStat = document.getElementById('statusAgendamento').value;
+        if (!novaData || !novaHora) {
+            alert('Informe a data e a hora do agendamento extra.');
+            return;
+        }
+        if (!validarContaPagarOcorrencia()) return;
+
+        try {
+            const [{ data: existentes, error: erroExistentes }, { data: planos, error: erroPlano }] = await Promise.all([
+                bancoDados.from('agendamentos').select('id, status').eq('paciente_id', idPacienteEditando).eq('data', novaData),
+                bancoDados.from('planos_atendimento').select('data_inicio, dia_semana, frequencia').eq('paciente_id', idPacienteEditando).eq('ativo', true)
+            ]);
+            if (erroExistentes) throw erroExistentes;
+            if (erroPlano) throw erroPlano;
+            const coincideComCronograma = (planos || []).some(plano =>
+                checarDataCorrespondeAoPlano(criarDataLocal(novaData), plano.data_inicio, plano.dia_semana, plano.frequencia)
+            );
+            if ((existentes || []).length || coincideComCronograma) {
+                alert('Já existe uma sessão ou uma data prevista no cronograma para este dia. Para alterá-la, use os três pontos da própria sessão.');
+                return;
+            }
+
+            const payload = { paciente_id: idPacienteEditando, data: novaData, hora: novaHora, modalidade: novaMod, valor: novoVal, status: novoStat };
+            const { data: inserido, error: erroInserir } = await bancoDados.from('agendamentos').insert([payload]).select();
+            if (erroInserir) throw erroInserir;
+            await salvarStatusPagamentoOcorrencia(idPacienteEditando, novaData);
+            await salvarContaPagarOcorrencia(idPacienteEditando, novaData, novaData, 'somente', frequenciaPadrao);
+            await registrarLogSistema({
+                acao: 'Agendamento extra criado', entidade: 'agendamento', entidadeId: inserido?.[0]?.id || '',
+                pacienteId: idPacienteEditando, pacienteNome: document.getElementById('nome')?.value || 'Paciente',
+                detalhes: `Data extra inserida para ${formatarDataBR(criarDataLocal(novaData))} às ${novaHora.substring(0, 5)}.`,
+                dadosDepois: { data: novaData, hora: novaHora, modalidade: novaMod, valor: novoVal, status: novoStat, tipo: 'Extra' }
+            });
+            fecharModalAgendamento();
+            carregarAgendaSemanal();
+            renderizarSidebarCalendarioPaciente(idPacienteEditando, true);
+            mostrarAvisoSistema('Agendamento extra salvo com sucesso.');
+        } catch (erro) {
+            console.error(erro);
+            alert('Não foi possível salvar o agendamento extra. Tente novamente.');
+        }
+    };
     modal.style.display = 'flex';
 };
 
@@ -2087,6 +2353,13 @@ async function renderizarSidebarCalendarioPaciente(pacienteId, manterPeriodoAtua
     }
 
     sidebar.style.display = 'block';
+    const botaoAgendamentoExtra = document.getElementById('btnAgendamentoExtraPaciente');
+    if (botaoAgendamentoExtra) {
+        const pacienteEstaInativo = document.getElementById('statusVinculo')?.value === 'Inativo';
+        botaoAgendamentoExtra.style.display = pacienteId && pacienteId !== 'null' ? 'block' : 'none';
+        botaoAgendamentoExtra.disabled = pacienteEstaInativo;
+        botaoAgendamentoExtra.title = pacienteEstaInativo ? 'Pacientes inativos não recebem novos agendamentos.' : '';
+    }
     if (!manterPeriodoAtual) configurarPeriodoPadraoSidebar();
     const periodo = obterPeriodoConsultaPaciente();
     if (!periodo) return;
@@ -2155,10 +2428,6 @@ async function renderizarSidebarCalendarioPaciente(pacienteId, manterPeriodoAtua
             const atendeRecorrencia = checarDataCorrespondeAoPlano(new Date(dataFoco), dataInicioStr, diaSemana, frequencia);
             const excecao = agendamentos.find(a => a.data === dataISO);
 
-            // O cancelamento criado internamente ao reagendar serve apenas para bloquear
-            // a recorrência na data antiga. Ele não deve aparecer como uma sessão cancelada.
-            if (excecao?.status === 'Cancelado') continue;
-
             if (atendeRecorrencia || excecao) {
                 const exibData = formatarDataBR(dataFoco);
                 const diasSemanaAbreviados = ['dom.', 'seg.', 'ter.', 'qua.', 'qui.', 'sex.', 'sáb.'];
@@ -2199,6 +2468,16 @@ async function renderizarSidebarCalendarioPaciente(pacienteId, manterPeriodoAtua
 async function executarSalvamentoPorEscopo(pacienteId, dataOriginalISO, novaDataISO, novaHora, novaMod, novoVal, statusSessao, escopo, novaFreq) {
     if (!bancoDados) return false;
     try {
+        let dadosAntes = null;
+        if (escopo === 'somente') {
+            const { data } = await bancoDados.from('agendamentos').select('id, data, hora, modalidade, valor, status')
+                .eq('paciente_id', pacienteId).eq('data', dataOriginalISO);
+            dadosAntes = data?.[0] || { data: dataOriginalISO, origem: 'cronograma recorrente' };
+        } else {
+            const { data } = await bancoDados.from('planos_atendimento').select('id, data_inicio, dia_semana, frequencia, hora_padrao, modalidade, valor')
+                .eq('paciente_id', pacienteId);
+            dadosAntes = data?.[0] || null;
+        }
         if (escopo === 'somente') {
             const payload = { paciente_id: pacienteId, data: novaDataISO, hora: novaHora, modalidade: novaMod, valor: novoVal, status: statusSessao };
             if (novaDataISO !== dataOriginalISO) {
@@ -2237,6 +2516,19 @@ async function executarSalvamentoPorEscopo(pacienteId, dataOriginalISO, novaData
             await bancoDados.from('planos_atendimento').update(payloadPlano).eq('paciente_id', pacienteId);
             await bancoDados.from('agendamentos').delete().eq('paciente_id', pacienteId).gte('data', dataOriginalISO);
         }
+        const pacienteNome = await obterNomePacienteParaLog(pacienteId);
+        await registrarLogSistema({
+            acao: escopo === 'somente' ? 'Agendamento alterado' : 'Cronograma do paciente alterado',
+            entidade: escopo === 'somente' ? 'agendamento' : 'plano_atendimento',
+            entidadeId: pacienteId,
+            pacienteId,
+            pacienteNome,
+            detalhes: escopo === 'somente'
+                ? `Sessão de ${formatarDataBR(criarDataLocal(dataOriginalISO))} alterada para ${formatarDataBR(criarDataLocal(novaDataISO))} às ${novaHora.substring(0, 5)}.`
+                : `Cronograma atualizado a partir de ${formatarDataBR(criarDataLocal(novaDataISO))}.`,
+            dadosAntes,
+            dadosDepois: { data: novaDataISO, hora: novaHora, modalidade: novaMod, valor: novoVal, status: statusSessao, frequencia: novaFreq, escopo }
+        });
         alert('Modificações salvas com sucesso!');
         return true;
     } catch (e) {
@@ -2566,6 +2858,197 @@ async function atualizarDashboard() {
     }
 }
 
+function montarOcorrenciasHistoricoAgendamentos(base, dataInicio, dataFim, pacienteFiltro = '') {
+    if (!base || !dataInicio || !dataFim) return [];
+    const mapaPacientes = Object.fromEntries((base.pacientes || []).map(paciente => [String(paciente.id), paciente]));
+    const ocorrencias = [];
+    const totalDias = Math.round((normalizarData(dataFim).getTime() - normalizarData(dataInicio).getTime()) / (1000 * 60 * 60 * 24));
+
+    for (let indice = 0; indice <= totalDias; indice++) {
+        const dataFoco = adicionarDias(dataInicio, indice);
+        const dataISO = formatarDataISO(dataFoco);
+        const especificosDia = (base.agendamentos || []).filter(item => item.data === dataISO);
+        especificosDia.forEach(agendamento => {
+            if (pacienteFiltro && String(agendamento.paciente_id) !== String(pacienteFiltro)) return;
+            const plano = (base.planos || []).find(item => String(item.paciente_id) === String(agendamento.paciente_id));
+            const pertenceAoCronograma = plano && checarDataCorrespondeAoPlano(dataFoco, plano.data_inicio, plano.dia_semana, plano.frequencia);
+            const paciente = mapaPacientes[String(agendamento.paciente_id)] || {};
+            ocorrencias.push({
+                pacienteId: agendamento.paciente_id,
+                pacienteNome: paciente.nome || 'Paciente sem nome',
+                dataISO,
+                dataObj: dataFoco,
+                hora: agendamento.hora?.substring(0, 5) || plano?.hora_padrao?.substring(0, 5) || '--:--',
+                modalidade: agendamento.modalidade || plano?.modalidade || 'Presencial',
+                frequencia: pertenceAoCronograma ? (plano.frequencia || 'Semanal') : 'Extra',
+                status: agendamento.status || 'Agendado'
+            });
+        });
+
+        (base.planos || []).forEach(plano => {
+            if (plano.ativo === false) return;
+            if (pacienteFiltro && String(plano.paciente_id) !== String(pacienteFiltro)) return;
+            const possuiAgendamentoEspecifico = especificosDia.some(item => String(item.paciente_id) === String(plano.paciente_id));
+            if (possuiAgendamentoEspecifico || !checarDataCorrespondeAoPlano(dataFoco, plano.data_inicio, plano.dia_semana, plano.frequencia)) return;
+            const paciente = mapaPacientes[String(plano.paciente_id)] || {};
+            ocorrencias.push({
+                pacienteId: plano.paciente_id,
+                pacienteNome: paciente.nome || 'Paciente sem nome',
+                dataISO,
+                dataObj: dataFoco,
+                hora: plano.hora_padrao?.substring(0, 5) || '--:--',
+                modalidade: plano.modalidade || 'Presencial',
+                frequencia: plano.frequencia || 'Semanal',
+                status: 'Agendado'
+            });
+        });
+    }
+    return ocorrencias.sort((a, b) => a.dataISO.localeCompare(b.dataISO) || a.hora.localeCompare(b.hora) || a.pacienteNome.localeCompare(b.pacienteNome));
+}
+
+async function carregarTelaHistoricoAgendamentos() {
+    const inicioInput = document.getElementById('historicoAgendamentosInicio');
+    const fimInput = document.getElementById('historicoAgendamentosFim');
+    const pacienteInput = document.getElementById('historicoAgendamentosPaciente');
+    if (!inicioInput || !fimInput || !pacienteInput || !bancoDados) return;
+    const periodo = obterPeriodoMesAtual();
+    if (!inicioInput.value) inicioInput.value = formatarDataISO(periodo.inicio);
+    if (!fimInput.value) fimInput.value = formatarDataISO(periodo.fim);
+    try {
+        const selecionado = pacienteInput.value;
+        const { data, error } = await bancoDados.from('pacientes').select('id, nome, status').order('nome');
+        if (error) throw error;
+        pacienteInput.innerHTML = '<option value="">Todos os pacientes</option>' + (data || []).map(paciente => {
+            const sufixo = paciente.status === 'Inativo' ? ' (Inativo)' : '';
+            return `<option value="${paciente.id}">${escaparHTML((paciente.nome || 'Paciente sem nome') + sufixo)}</option>`;
+        }).join('');
+        pacienteInput.value = selecionado;
+        await gerarHistoricoAgendamentos();
+    } catch (erro) {
+        console.error(erro);
+        document.getElementById('resultadoHistoricoAgendamentos').innerHTML = 'Não foi possível carregar os filtros de agendamentos.';
+    }
+}
+
+function criarDadosHistoricoAgendamentos(ocorrencias) {
+    const inicio = document.getElementById('historicoAgendamentosInicio')?.value || '';
+    const fim = document.getElementById('historicoAgendamentosFim')?.value || '';
+    const paciente = document.getElementById('historicoAgendamentosPaciente')?.selectedOptions[0]?.text || 'Todos os pacientes';
+    const registros = ocorrencias.map(item => ({
+        colunas: [
+            formatarDataBR(item.dataObj), item.pacienteNome,
+            ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'][item.dataObj.getDay()],
+            item.hora, item.modalidade, item.frequencia, item.status
+        ]
+    }));
+    const inicioBR = inicio ? formatarDataBR(criarDataLocal(inicio)) : '--';
+    const fimBR = fim ? formatarDataBR(criarDataLocal(fim)) : '--';
+    return {
+        titulo: 'Histórico de Agendamentos', paciente, inicioBR, fimBR, registros,
+        cabecalhos: ['Data', 'Paciente', 'Dia', 'Hora', 'Modalidade', 'Frequência', 'Status'],
+        colunaFinalMonetaria: false,
+        rodape: `Total de agendamentos: ${registros.length}`,
+        texto: `Histórico de Agendamentos\nPaciente: ${paciente}\nPeríodo: ${inicioBR} a ${fimBR}\n\n${registros.map(registro => registro.colunas.join(' | ')).join('\n')}\n\nTotal de agendamentos: ${registros.length}`
+    };
+}
+
+async function gerarHistoricoAgendamentos() {
+    const resultado = document.getElementById('resultadoHistoricoAgendamentos');
+    const inicioInput = document.getElementById('historicoAgendamentosInicio');
+    const fimInput = document.getElementById('historicoAgendamentosFim');
+    if (!resultado || !inicioInput || !fimInput) return;
+    const dataInicio = criarDataLocal(inicioInput.value);
+    const dataFim = criarDataLocal(fimInput.value);
+    if (!dataInicio || !dataFim) {
+        resultado.innerHTML = 'Informe um período válido para consultar os agendamentos.';
+        return;
+    }
+    const inicio = dataInicio <= dataFim ? dataInicio : dataFim;
+    const fim = dataInicio <= dataFim ? dataFim : dataInicio;
+    inicioInput.value = formatarDataISO(inicio);
+    fimInput.value = formatarDataISO(fim);
+    resultado.innerHTML = 'Consultando agendamentos...';
+    try {
+        const base = await buscarBaseFinanceira();
+        const paciente = document.getElementById('historicoAgendamentosPaciente')?.value || '';
+        const modalidade = document.getElementById('historicoAgendamentosModalidade')?.value || '';
+        const frequencia = document.getElementById('historicoAgendamentosFrequencia')?.value || '';
+        let ocorrencias = montarOcorrenciasHistoricoAgendamentos(base, inicio, fim, paciente);
+        if (modalidade) ocorrencias = ocorrencias.filter(item => item.modalidade === modalidade);
+        if (frequencia) ocorrencias = ocorrencias.filter(item => item.frequencia === frequencia);
+        ultimoHistoricoAgendamentos = criarDadosHistoricoAgendamentos(ocorrencias);
+        if (!ocorrencias.length) {
+            resultado.innerHTML = 'Nenhum agendamento encontrado para os filtros selecionados.';
+            return;
+        }
+        resultado.innerHTML = `<table class="tabela-relatorio"><thead><tr><th>Data</th><th>Paciente</th><th>Dia</th><th>Hora</th><th>Modalidade</th><th>Frequência</th><th>Status</th></tr></thead><tbody>${ocorrencias.map(item => `
+            <tr class="linha-status-${String(item.status || '').toLowerCase()}">
+                <td data-label="Data">${formatarDataBR(item.dataObj)}</td>
+                <td data-label="Paciente">${escaparHTML(item.pacienteNome)}</td>
+                <td data-label="Dia">${['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'][item.dataObj.getDay()]}</td>
+                <td data-label="Hora">${escaparHTML(item.hora)}</td>
+                <td data-label="Modalidade">${escaparHTML(item.modalidade)}</td>
+                <td data-label="Frequência">${escaparHTML(item.frequencia)}</td>
+                <td data-label="Status">${escaparHTML(item.status)}</td>
+            </tr>`).join('')}</tbody></table>`;
+    } catch (erro) {
+        console.error(erro);
+        ultimoHistoricoAgendamentos = null;
+        resultado.innerHTML = 'Não foi possível consultar o histórico de agendamentos.';
+    }
+}
+
+async function criarPdfHistoricoAgendamentos() {
+    if (!ultimoHistoricoAgendamentos?.registros?.length) return null;
+    const logo = await converterLogoRelatorioEmJpeg(obterLogoRelatorioCompartilhavel());
+    return { dados: ultimoHistoricoAgendamentos, pdf: criarPdfCompletoCompartilhavel(ultimoHistoricoAgendamentos, logo) };
+}
+
+async function exportarPdfHistoricoAgendamentos() {
+    const relatorio = await criarPdfHistoricoAgendamentos();
+    if (!relatorio) { alert('Faça uma consulta com resultados antes de exportar.'); return; }
+    const arquivo = new File([relatorio.pdf], 'historico-de-agendamentos.pdf', { type: 'application/pdf' });
+    if (estaEmModoMobile() && navigator.share && (!navigator.canShare || navigator.canShare({ files: [arquivo] }))) {
+        try { await navigator.share({ title: relatorio.dados.titulo, text: relatorio.dados.texto, files: [arquivo] }); } catch (erro) { if (erro?.name !== 'AbortError') console.error(erro); }
+        return;
+    }
+    baixarArquivoBlob(arquivo, 'historico-de-agendamentos.pdf');
+}
+
+function exportarExcelHistoricoAgendamentos() {
+    if (!ultimoHistoricoAgendamentos?.registros?.length) { alert('Faça uma consulta com resultados antes de exportar.'); return; }
+    baixarArquivoBlob(criarArquivoExcelXlsx(ultimoHistoricoAgendamentos), 'historico-de-agendamentos.xlsx');
+}
+
+async function enviarHistoricoAgendamentosViaWhatsApp() {
+    const botao = document.getElementById('btnEnviarWhatsAppHistoricoAgendamentos');
+    const rotulo = botao?.querySelector('span');
+    const textoOriginal = rotulo?.textContent || 'Enviar Arquivo';
+    const relatorio = await criarPdfHistoricoAgendamentos();
+    if (!relatorio) { alert('Faça uma consulta com resultados antes de enviar.'); return; }
+    const arquivo = new File([relatorio.pdf], 'historico-de-agendamentos.pdf', { type: 'application/pdf' });
+    const mensagem = `Segue o Histórico de Agendamentos (${relatorio.dados.inicioBR} a ${relatorio.dados.fimBR}).`;
+    if (botao) botao.disabled = true;
+    if (rotulo) rotulo.textContent = 'Preparando...';
+    try {
+        if (estaEmModoMobile() && navigator.share && (!navigator.canShare || navigator.canShare({ files: [arquivo] }))) {
+            await navigator.share({ title: 'Histórico de Agendamentos', text: mensagem, files: [arquivo] });
+            return;
+        }
+        baixarArquivoBlob(arquivo, 'historico-de-agendamentos.pdf');
+        window.open(`https://web.whatsapp.com/send?text=${encodeURIComponent(mensagem)}`, '_blank');
+        alert('O PDF foi baixado. No WhatsApp, escolha o contato e anexe o arquivo baixado pelo ícone de clipe.');
+    } catch (erro) {
+        if (erro?.name !== 'AbortError') {
+            console.error(erro);
+            alert('Não foi possível preparar o arquivo para o WhatsApp.');
+        }
+    } finally {
+        if (botao) botao.disabled = false;
+        if (rotulo) rotulo.textContent = textoOriginal;
+    }
+}
+
 function alternarFormularioConta(tipo) {
     const form = document.getElementById(tipo === 'pagar' ? 'formContaPagar' : 'formContaReceber');
     if (!form) return;
@@ -2616,13 +3099,19 @@ async function salvarContaManual(tipo) {
     if (!data || !valor || valor <= 0 || !descricao?.trim()) { alert('Preencha data, descrição e valor da conta.'); return; }
     const contas = obterContasManuais();
     const pago = Boolean(document.getElementById(tipo === 'pagar' ? 'contaPagarPago' : 'contaReceberPago')?.checked);
-    contas.push({ id: `${Date.now()}_${Math.random().toString(16).slice(2)}`, tipo, data, valor, categoria, descricao: descricao.trim(), pago });
+    const contaNova = { id: `${Date.now()}_${Math.random().toString(16).slice(2)}`, tipo, data, valor, categoria, descricao: descricao.trim(), pago };
+    contas.push(contaNova);
     try {
         await salvarContasManuais(contas);
     } catch (erro) {
         alert('A conta foi mantida neste dispositivo, mas não foi possível enviá-la para a nuvem. Tente novamente.');
         return;
     }
+    await registrarLogSistema({
+        acao: `Conta a ${tipo === 'pagar' ? 'pagar' : 'receber'} criada`, entidade: 'conta_financeira', entidadeId: contaNova.id,
+        detalhes: `${contaNova.descricao} — ${formatarDataBR(criarDataLocal(data))} — ${formatarMoeda(valor)}.`,
+        dadosDepois: { tipo, data, valor, categoria, pago }
+    });
     document.getElementById(`conta${sufixo}Valor`).value = '';
     if (tipo === 'pagar') document.getElementById('contaPagarDescricao').value = '';
     else document.getElementById('contaReceberDescricao').value = '';
@@ -2636,6 +3125,7 @@ window.salvarContaManual = salvarContaManual;
 
 async function excluirContaManual(id, tipo) {
     const contasAnteriores = obterContasManuais();
+    const contaExcluida = contasAnteriores.find(conta => conta.id === id && conta.tipo === tipo);
     const contasAtualizadas = contasAnteriores.filter(conta => conta.id !== id);
     contasManuaisCache = contasAtualizadas;
     salvarContasManuaisLocais(contasAtualizadas);
@@ -2652,6 +3142,11 @@ async function excluirContaManual(id, tipo) {
         alert('Não foi possível excluir a conta na nuvem. Tente novamente.');
         return;
     }
+    await registrarLogSistema({
+        acao: `Conta a ${tipo === 'pagar' ? 'pagar' : 'receber'} removida`, entidade: 'conta_financeira', entidadeId: id,
+        detalhes: contaExcluida ? `${contaExcluida.descricao || contaExcluida.categoria || 'Conta'} removida.` : 'Conta removida.',
+        dadosAntes: contaExcluida || null
+    });
     carregarTelaContas(tipo);
     atualizarIndicadoresFinanceirosDashboard();
 }
@@ -2668,6 +3163,12 @@ async function alternarContaPaga(id, tipo, paga, chavePagamento = '') {
             alert('Não foi possível atualizar o pagamento na nuvem. Tente novamente.');
             return;
         }
+        await registrarLogSistema({
+            acao: `Conta a ${tipo === 'pagar' ? 'pagar' : 'receber'} ${paga ? 'marcada como paga' : 'marcada como em aberto'}`,
+            entidade: 'pagamento_conta', entidadeId: id,
+            detalhes: `Pagamento da data ${formatarDataBR(criarDataLocal(dataISO))} atualizado.`,
+            dadosDepois: { pago: Boolean(paga), data: dataISO }
+        });
         emitirAlteracaoFinanceira();
         carregarTelaContas(tipo);
         atualizarIndicadoresFinanceirosDashboard();
@@ -2683,6 +3184,12 @@ async function alternarContaPaga(id, tipo, paga, chavePagamento = '') {
         alert('Não foi possível atualizar o pagamento na nuvem. Tente novamente.');
         return;
     }
+    await registrarLogSistema({
+        acao: `Conta a ${tipo === 'pagar' ? 'pagar' : 'receber'} ${paga ? 'marcada como paga' : 'marcada como em aberto'}`,
+        entidade: 'conta_financeira', entidadeId: id,
+        detalhes: `${conta.descricao || conta.categoria || 'Conta'}: pagamento atualizado.`,
+        dadosDepois: { pago: Boolean(paga), data: conta.data }
+    });
     carregarTelaContas(tipo);
     atualizarIndicadoresFinanceirosDashboard();
 }
@@ -2702,6 +3209,13 @@ async function alternarPagamentoAtendimento(pacienteId, dataISO, pago) {
         atualizarTelasFinanceirasAbertas();
         return;
     }
+    await registrarLogSistema({
+        acao: pago ? 'Pagamento de atendimento registrado' : 'Pagamento de atendimento reaberto',
+        entidade: 'pagamento_atendimento', entidadeId: `${pacienteId}_${dataISO}`,
+        pacienteId, pacienteNome: await obterNomePacienteParaLog(pacienteId),
+        detalhes: `Pagamento da sessão de ${formatarDataBR(criarDataLocal(dataISO))} ${pago ? 'marcado como pago' : 'marcado como em aberto'}.`,
+        dadosDepois: { pago: Boolean(pago), data: dataISO }
+    });
     mostrarAvisoSistema(pago ? 'Pagamento registrado com sucesso.' : 'Pagamento marcado como em aberto.');
     emitirAlteracaoFinanceira();
 }
@@ -3067,6 +3581,10 @@ async function converterLogoRelatorioEmJpeg(dataUrl) {
 
 function criarPdfCompletoCompartilhavel(dados, logo) {
     const codificador = new TextEncoder();
+    const tituloRelatorio = dados.titulo || 'Demonstrativo Financeiro de Atendimentos';
+    const cabecalhos = dados.cabecalhos || ['Data', 'Paciente', 'Hora', 'Modalidade', 'Status', 'Pagamento', 'Valor'];
+    const colunasRegistro = registro => registro.colunas || [registro.data, registro.paciente, registro.hora, registro.modalidade, registro.status, registro.pagamento, registro.valor];
+    const rodape = dados.rodape || `Total: ${formatarMoeda(dados.total || 0)}`;
     const paraPdf = valor => String(valor || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7E]/g, ' ').replace(/\s+/g, ' ').trim().replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
     const limitar = (valor, limite) => {
         const texto = paraPdf(valor);
@@ -3096,27 +3614,19 @@ function criarPdfCompletoCompartilhavel(dados, logo) {
             comandos.push('q', `${larguraLogo} 0 0 ${alturaLogo} 40 ${540 - alturaLogo} cm`, '/Logo Do', 'Q');
         }
         definirCorTexto();
-        escrever('F2', 17, 250, 540, 'Demonstrativo Financeiro de Atendimentos');
+        escrever('F2', 17, 250, 540, tituloRelatorio);
         escrever('F1', 9, 250, 520, `Paciente: ${dados.paciente}`);
         escrever('F1', 9, 250, 506, `Período: ${dados.inicioBR} a ${dados.fimBR}`);
         comandos.push('0.25 0.45 0.46 RG', '1.1 w', '40 486 m 802 486 l S', '0.91 0.94 0.96 rg', '40 452 762 18 re f');
         let xCabecalho = 40;
         definirCorTexto();
-        ['Data', 'Paciente', 'Hora', 'Modalidade', 'Status', 'Pagamento', 'Valor'].forEach((rotulo, indice) => {
+        cabecalhos.forEach((rotulo, indice) => {
             escrever('F2', 7, xCabecalho + 5, 458, rotulo);
             xCabecalho += larguras[indice];
         });
         pagina.registros.forEach((registro, indiceLinha) => {
             const y = 437 - (indiceLinha * 22);
-            const campos = [
-                limitar(registro.data, 12),
-                limitar(registro.paciente, 31),
-                limitar(registro.hora, 10),
-                limitar(registro.modalidade, 18),
-                limitar(registro.status, 15),
-                limitar(registro.pagamento, 18),
-                limitar(registro.valor, 18)
-            ];
+            const campos = colunasRegistro(registro).map((campo, indiceCampo) => limitar(campo, [12, 31, 18, 12, 18, 18, 18][indiceCampo] || 18));
             let x = 40;
             definirCorTexto();
             campos.forEach((campo, indiceCampo) => {
@@ -3129,7 +3639,7 @@ function criarPdfCompletoCompartilhavel(dados, logo) {
         if (indicePagina === paginasIds.length - 1) {
             // Mantém o total logo após a última linha da tabela, como no relatório web.
             const yTotal = Math.max(54, 437 - (pagina.registros.length * 22) - 16);
-            escrever('F2', 11, 650, yTotal, `Total: ${formatarMoeda(dados.total)}`);
+            escrever('F2', 11, 590, yTotal, rodape);
         }
         escrever('F1', 7, 745, 24, `Página ${indicePagina + 1} de ${paginasIds.length}`);
         const bytesFluxo = codificador.encode(comandos.join('\n'));
@@ -3374,21 +3884,33 @@ function colunaExcel(indice) {
 }
 
 function criarArquivoExcelXlsx(dados) {
-    const cabecalhos = ['Data', 'Paciente', 'Hora', 'Modalidade', 'Status', 'Pagamento', 'Valor'];
+    const cabecalhos = dados.cabecalhos || ['Data', 'Paciente', 'Hora', 'Modalidade', 'Status', 'Pagamento', 'Valor'];
+    const colunaFinalMonetaria = dados.colunaFinalMonetaria !== false;
+    const colunasRegistro = registro => registro.colunas || [registro.data, registro.paciente, registro.hora, registro.modalidade, registro.status, registro.pagamento, registro.valor];
     const celulaTexto = (referencia, valor, estilo = 0) => `<c r="${referencia}" t="inlineStr" s="${estilo}"><is><t xml:space="preserve">${escaparXmlExcel(valor)}</t></is></c>`;
     const celulaNumero = (referencia, valor, estilo = 3) => `<c r="${referencia}" s="${estilo}"><v>${Number(valor || 0).toFixed(2)}</v></c>`;
     const linhas = [];
-    linhas.push(`<row r="1" ht="28" customHeight="1">${celulaTexto('A1', 'Demonstrativo Financeiro de Atendimentos', 1)}</row>`);
+    linhas.push(`<row r="1" ht="28" customHeight="1">${celulaTexto('A1', dados.titulo || 'Demonstrativo Financeiro de Atendimentos', 1)}</row>`);
     linhas.push(`<row r="2">${celulaTexto('A2', `Paciente: ${dados.paciente}`)}</row>`);
     linhas.push(`<row r="3">${celulaTexto('A3', `Período: ${dados.inicioBR} a ${dados.fimBR}`)}</row>`);
     linhas.push('<row r="4"/>');
     linhas.push(`<row r="5">${cabecalhos.map((cabecalho, indice) => celulaTexto(`${colunaExcel(indice + 1)}5`, cabecalho, 2)).join('')}</row>`);
     dados.registros.forEach((registro, indice) => {
         const linha = indice + 6;
-        linhas.push(`<row r="${linha}">${celulaTexto(`A${linha}`, registro.data)}${celulaTexto(`B${linha}`, registro.paciente)}${celulaTexto(`C${linha}`, registro.hora)}${celulaTexto(`D${linha}`, registro.modalidade)}${celulaTexto(`E${linha}`, registro.status)}${celulaTexto(`F${linha}`, registro.pagamento)}${celulaNumero(`G${linha}`, converterTextoMoedaParaNumero(registro.valor))}</row>`);
+        const celulas = colunasRegistro(registro).map((valor, indiceColuna) => {
+            const referencia = `${colunaExcel(indiceColuna + 1)}${linha}`;
+            return colunaFinalMonetaria && indiceColuna === cabecalhos.length - 1
+                ? celulaNumero(referencia, converterTextoMoedaParaNumero(valor))
+                : celulaTexto(referencia, valor);
+        }).join('');
+        linhas.push(`<row r="${linha}">${celulas}</row>`);
     });
     const linhaTotal = dados.registros.length + 6;
-    linhas.push(`<row r="${linhaTotal}">${celulaTexto(`F${linhaTotal}`, 'Total', 4)}${celulaNumero(`G${linhaTotal}`, dados.total, 4)}</row>`);
+    if (colunaFinalMonetaria) {
+        linhas.push(`<row r="${linhaTotal}">${celulaTexto(`F${linhaTotal}`, 'Total', 4)}${celulaNumero(`G${linhaTotal}`, dados.total, 4)}</row>`);
+    } else {
+        linhas.push(`<row r="${linhaTotal}">${celulaTexto(`A${linhaTotal}`, dados.rodape || `Total de registros: ${dados.registros.length}`, 4)}</row>`);
+    }
 
     const planilha = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cols><col min="1" max="1" width="13" customWidth="1"/><col min="2" max="2" width="28" customWidth="1"/><col min="3" max="3" width="10" customWidth="1"/><col min="4" max="4" width="17" customWidth="1"/><col min="5" max="5" width="16" customWidth="1"/><col min="6" max="6" width="18" customWidth="1"/><col min="7" max="7" width="14" customWidth="1"/></cols><sheetData>${linhas.join('')}</sheetData><mergeCells count="3"><mergeCell ref="A1:G1"/><mergeCell ref="A2:G2"/><mergeCell ref="A3:G3"/></mergeCells></worksheet>`;
     const estilos = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="&quot;R$&quot; #,##0.00"/></numFmts><fonts count="3"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="16"/><color rgb="FF172033"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FF172033"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEAF0F8"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="center"/></xf><xf numFmtId="0" fontId="2" fillId="2" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="center"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="164" fontId="2" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs></styleSheet>`;
@@ -3595,7 +4117,10 @@ async function salvarPaciente() {
 
     try {
         let pacienteId = idPacienteEditando;
+        let pacienteAnterior = null;
         if (idPacienteEditando) {
+            const { data: dadosAnteriores } = await bancoDados.from('pacientes').select('nome, status').eq('id', idPacienteEditando);
+            pacienteAnterior = dadosAnteriores?.[0] || null;
             await bancoDados.from('pacientes').update(payloadPaciente).eq('id', idPacienteEditando);
         } else {
             const { data } = await bancoDados.from('pacientes').insert([payloadPaciente]).select();
@@ -3634,6 +4159,18 @@ async function salvarPaciente() {
                 .neq('status', 'Realizado');
             if (erroCancelarFuturos) throw erroCancelarFuturos;
         }
+        await registrarLogSistema({
+            acao: pacienteAnterior ? 'Paciente atualizado' : 'Paciente cadastrado',
+            entidade: 'paciente',
+            entidadeId: pacienteId,
+            pacienteId,
+            pacienteNome: payloadPaciente.nome,
+            detalhes: payloadPaciente.status === 'Inativo'
+                ? 'Paciente marcado como inativo; sessões futuras foram canceladas.'
+                : (pacienteAnterior ? 'Dados do perfil e do plano clínico atualizados.' : 'Novo paciente e plano clínico cadastrados.'),
+            dadosAntes: pacienteAnterior ? { status: pacienteAnterior.status } : null,
+            dadosDepois: { status: payloadPaciente.status, frequencia: payloadPlano.frequencia, horario: payloadPlano.hora_padrao, modalidade: payloadPlano.modalidade, valor: payloadPlano.valor }
+        });
         alert('Prontuário salvo com sucesso!');
         mostrarTela('pacientes');
     } catch (err) {
@@ -3645,6 +4182,13 @@ async function salvarPaciente() {
 window.excluirPacienteAtual = async function() {
     if (!idPacienteEditando || !confirm("Remover permanentemente este registro?")) return;
     try {
+        const pacienteId = idPacienteEditando;
+        const nomePaciente = document.getElementById('nome')?.value || await obterNomePacienteParaLog(pacienteId);
+        await registrarLogSistema({
+            acao: 'Paciente removido', entidade: 'paciente', entidadeId: pacienteId,
+            pacienteId, pacienteNome: nomePaciente,
+            detalhes: 'Registro, plano clínico e agendamentos foram removidos permanentemente.'
+        });
         await bancoDados.from('planos_atendimento').delete().eq('paciente_id', idPacienteEditando);
         await bancoDados.from('agendamentos').delete().eq('paciente_id', idPacienteEditando);
         await bancoDados.from('pacientes').delete().eq('id', idPacienteEditando);
@@ -3829,6 +4373,11 @@ function salvarConfiguracoes() {
         }
     }
     aplicarConfiguracoesVisuais();
+    void registrarLogSistema({
+        acao: 'Configurações atualizadas', entidade: 'configuracoes',
+        detalhes: 'Preferências visuais e identificação da clínica atualizadas.',
+        dadosDepois: { titulo, subtitulo, tema, corSidebar, corPrincipal }
+    });
     mostrarAvisoSistema('Configurações salvas com sucesso!');
 }
 
