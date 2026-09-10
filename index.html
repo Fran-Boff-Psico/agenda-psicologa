@@ -42,16 +42,16 @@
         <div id="submenuFinanceiro" class="submenu-financeiro">
             <button onclick="mostrarTela('contasReceber')">Contas a Receber</button>
             <button onclick="mostrarTela('contasPagar')">Contas a Pagar</button>
+            <button onclick="mostrarTela('relatorios')">Relatórios financeiros</button>
         </div>
         <button type="button" onclick="alternarSubmenuRelatorios()">Relatórios</button>
         <div id="submenuRelatorios" class="submenu-relatorios">
-            <button onclick="mostrarTela('relatorios')">Relatórios financeiros</button>
             <button onclick="mostrarTela('historicoAgendamentos')">Histórico de agendamentos</button>
+            <button type="button" onclick="abrirHistoricoLogs()">Consulta de logs</button>
         </div>
         <button type="button" onclick="alternarSubmenuDocumentos()">Documentos</button>
         <div id="submenuDocumentos" class="submenu-documentos">
             <button type="button" onclick="abrirTermoCompromisso()">Termo de compromisso</button>
-            <button type="button" onclick="abrirHistoricoLogs()">Histórico de logs</button>
         </div>
         <button onclick="mostrarTela('configuracoes')">Configurações</button>
     </div>
@@ -398,22 +398,21 @@
 
         <div id="documentos" class="tela">
             <div class="documentos-container">
-                <section id="secaoTermoCompromisso">
-                    <div class="documentos-cabecalho">
-                        <h3>Termo de compromisso</h3>
-                    </div>
-                    <iframe id="frameTermoCompromisso" class="frame-documento" title="Termo de compromisso" loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe>
-                </section>
-                <section id="secaoHistoricoLogs" class="secao-historico-logs" hidden>
-                    <div class="documentos-cabecalho"><h3>Histórico de logs</h3></div>
-                    <div class="filtros-logs">
-                        <div class="form-group"><label for="logInicio">Data inicial</label><input type="date" id="logInicio"></div>
-                        <div class="form-group"><label for="logFim">Data final</label><input type="date" id="logFim"></div>
-                        <div class="form-group"><label for="logPaciente">Paciente</label><select id="logPaciente"><option value="">Todos os pacientes</option></select></div>
-                        <button type="button" id="btnConsultarLogs" class="btn-principal">Consultar</button>
-                    </div>
-                    <div id="resultadoLogs" class="resultado-relatorio">Carregando histórico...</div>
-                </section>
+                <div class="documentos-cabecalho"><h3>Termo de compromisso</h3></div>
+                <iframe id="frameTermoCompromisso" class="frame-documento" title="Termo de compromisso" loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+            </div>
+        </div>
+
+        <div id="consultaLogs" class="tela">
+            <div class="form-container relatorio-container secao-historico-logs">
+                <div class="documentos-cabecalho"><h3>Consulta de logs</h3></div>
+                <div class="filtros-logs">
+                    <div class="form-group"><label for="logInicio">Data inicial</label><input type="date" id="logInicio"></div>
+                    <div class="form-group"><label for="logFim">Data final</label><input type="date" id="logFim"></div>
+                    <div class="form-group"><label for="logPaciente">Paciente</label><select id="logPaciente"><option value="">Todos os pacientes</option></select></div>
+                    <button type="button" id="btnConsultarLogs" class="btn-principal">Consultar</button>
+                </div>
+                <div id="resultadoLogs" class="resultado-relatorio">Carregando histórico...</div>
             </div>
         </div>
 
