@@ -971,7 +971,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btnEnviarWhatsAppHistoricoAgendamentos')?.addEventListener('click', enviarHistoricoAgendamentosViaWhatsApp);
     document.getElementById('btnConsultarLogs')?.addEventListener('click', carregarHistoricoLogs);
     document.getElementById('filtroReceberPaciente')?.addEventListener('change', () => carregarTelaContas('receber'));
-    ['tipoRelatorio', 'filtroPacienteRelatorio', 'filtroPagamentoRelatorio', 'dataInicioRelatorio', 'dataFimRelatorio'].forEach(campoId => {
+    ['tipoRelatorio', 'filtroPacienteRelatorio', 'filtroStatusAtendimentoRelatorio', 'filtroPagamentoRelatorio', 'dataInicioRelatorio', 'dataFimRelatorio'].forEach(campoId => {
         document.getElementById(campoId)?.addEventListener('change', gerarRelatorioFinanceiro);
     });
     document.getElementById('arquivosProntuarioSessao')?.addEventListener('change', atualizarArquivosProntuarioSelecionados);
@@ -2603,10 +2603,12 @@ function montarOcorrenciasFinanceiras(base, dataInicio, dataFim, pacienteFiltro 
         especificosDia.forEach(ag => {
             if (!pacienteDisponivelNaData(ag.paciente_id, dataISO)) return;
             if (pacienteFiltro && String(ag.paciente_id) !== String(pacienteFiltro)) return;
-            if (ag.status === 'Cancelado') return;
 
             const planoOrigem = base.planos.find(pl => pl.paciente_id === ag.paciente_id) || {};
             const valor = Number(ag.valor ?? planoOrigem.valor ?? 0);
+            // Uma sessão cancelada ou com falta pode ter taxa a cobrar. Por isso,
+            // qualquer status com valor continua como lançamento financeiro.
+            if (valor <= 0) return;
             const pago = obterPagamentoAtendimento(ag.paciente_id, dataISO);
 
             ocorrencias.push({
@@ -2633,6 +2635,8 @@ function montarOcorrenciasFinanceiras(base, dataInicio, dataFim, pacienteFiltro 
             if (!checarDataCorrespondeAoPlano(new Date(dataFoco), plano.data_inicio, plano.dia_semana, plano.frequencia)) return;
 
             const pago = obterPagamentoAtendimento(plano.paciente_id, dataISO);
+            const valor = Number(plano.valor || 0);
+            if (valor <= 0) return;
             ocorrencias.push({
                 pacienteId: plano.paciente_id,
                 pacienteNome: mapaPacientes[plano.paciente_id].nome || 'Paciente sem nome',
@@ -2640,7 +2644,7 @@ function montarOcorrenciasFinanceiras(base, dataInicio, dataFim, pacienteFiltro 
                 dataObj: dataFoco,
                 hora: plano.hora_padrao ? plano.hora_padrao.substring(0, 5) : '--:--',
                 modalidade: plano.modalidade || 'Presencial',
-                valor: Number(plano.valor || 0),
+                valor,
                 status: 'Agendado',
                 pago
             });
@@ -2737,9 +2741,9 @@ async function atualizarIndicadoresFinanceirosDashboard() {
         const base = await buscarBaseFinanceira();
         if (!base) return;
         const periodo = obterPeriodoFinanceiroDashboard();
-        const contasReceber = filtrarContasDePacientesAtivos(contasNoPeriodo('receber', periodo.inicio, periodo.fim, base), base);
+        const contasReceber = filtrarContasParaRelatorio(contasNoPeriodo('receber', periodo.inicio, periodo.fim, base), base);
         const contasPagar = filtrarContasDePacientesAtivos(contasNoPeriodo('pagar', periodo.inicio, periodo.fim, base), base);
-        const ocorrencias = montarOcorrenciasFinanceiras(base, periodo.inicio, periodo.fim).concat(transformarContasReceberEmLinhas(contasReceber));
+        const ocorrencias = montarOcorrenciasFinanceiras(base, periodo.inicio, periodo.fim, '', true).concat(transformarContasReceberEmLinhas(contasReceber));
         const totais = calcularTotaisFinanceiros(ocorrencias);
         const pagarEmAberto = totalizarContas(contasPagar, true);
         const pagarConsideradoNoSaldo = totalizarContas(contasPagar);
@@ -2781,10 +2785,11 @@ async function gerarRelatorioFinanceiro() {
     const inicioInput = document.getElementById('dataInicioRelatorio');
     const fimInput = document.getElementById('dataFimRelatorio');
     const selectPaciente = document.getElementById('filtroPacienteRelatorio');
+    const filtroStatusAtendimento = document.getElementById('filtroStatusAtendimentoRelatorio');
     const filtroPagamento = document.getElementById('filtroPagamentoRelatorio');
     const tipoInput = document.getElementById('tipoRelatorio');
     const resultado = document.getElementById('resultadoRelatorio');
-    if (!inicioInput || !fimInput || !selectPaciente || !filtroPagamento || !tipoInput || !resultado) return;
+    if (!inicioInput || !fimInput || !selectPaciente || !filtroStatusAtendimento || !filtroPagamento || !tipoInput || !resultado) return;
 
     const dataInicio = criarDataLocal(inicioInput.value);
     const dataFim = criarDataLocal(fimInput.value);
@@ -2805,13 +2810,21 @@ async function gerarRelatorioFinanceiro() {
         const base = await buscarBaseFinanceira();
         const filtroRegistrosManuais = selectPaciente.value === 'reg_manual';
         const pacienteFiltro = filtroRegistrosManuais ? '' : selectPaciente.value;
+        const statusFiltro = filtroStatusAtendimento.value;
         const contasReceber = filtrarContasParaRelatorio(contasNoPeriodo('receber', inicio, fim, base), base);
         const contasPagar = filtrarContasParaRelatorio(contasNoPeriodo('pagar', inicio, fim, base), base)
             .filter(conta => filtroRegistrosManuais || !pacienteFiltro || String(conta.pacienteId || '') === String(pacienteFiltro));
         const linhasReceberManual = transformarContasReceberEmLinhas(contasReceber);
         const linhasPagar = transformarContasPagarEmLinhas(contasPagar);
         const linhasPagarRegManual = linhasPagar.filter(linha => linha.modalidade === 'Reg. Manual');
-        const ocorrencias = montarOcorrenciasFinanceiras(base, inicio, fim, pacienteFiltro, true).concat(linhasReceberManual);
+        const ocorrenciasAtendimentos = montarOcorrenciasFinanceiras(base, inicio, fim, pacienteFiltro, true);
+        const ocorrenciasComStatus = statusFiltro
+            ? ocorrenciasAtendimentos.filter(item => item.status === statusFiltro)
+            : ocorrenciasAtendimentos;
+        // Contas manuais não possuem status clínico; quando há filtro de status,
+        // a consulta fica restrita aos atendimentos que correspondem ao filtro.
+        const linhasReceberFiltradas = statusFiltro ? [] : linhasReceberManual;
+        const ocorrencias = ocorrenciasComStatus.concat(linhasReceberFiltradas);
         const totais = calcularTotaisFinanceiros(filtroRegistrosManuais ? linhasReceberManual : ocorrencias);
         const contasPagarDoIndicador = filtroRegistrosManuais
             ? contasPagar.filter(conta => ['Outro', 'Manual', 'Reg. Manual'].includes(conta.categoria || ''))
@@ -3001,9 +3014,11 @@ async function gerarHistoricoAgendamentos() {
     try {
         const base = await buscarBaseFinanceira();
         const paciente = document.getElementById('historicoAgendamentosPaciente')?.value || '';
+        const status = document.getElementById('historicoAgendamentosStatus')?.value || '';
         const modalidade = document.getElementById('historicoAgendamentosModalidade')?.value || '';
         const frequencia = document.getElementById('historicoAgendamentosFrequencia')?.value || '';
         let ocorrencias = montarOcorrenciasHistoricoAgendamentos(base, inicio, fim, paciente);
+        if (status) ocorrencias = ocorrencias.filter(item => item.status === status);
         if (modalidade) ocorrencias = ocorrencias.filter(item => item.modalidade === modalidade);
         if (frequencia) ocorrencias = ocorrencias.filter(item => item.frequencia === frequencia);
         ultimoHistoricoAgendamentos = criarDadosHistoricoAgendamentos(ocorrencias);
