@@ -277,6 +277,16 @@
                         </select>
                     </div>
                     <div class="form-group">
+                        <label>Status do atendimento</label>
+                        <select id="filtroStatusAtendimentoRelatorio">
+                            <option value="">Todos os status</option>
+                            <option value="Agendado">Agendado</option>
+                            <option value="Realizado">Realizado (Presença)</option>
+                            <option value="Falta">Falta</option>
+                            <option value="Cancelado">Cancelado</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
                         <label>Pagamento</label>
                         <select id="filtroPagamentoRelatorio">
                             <option value="todos">Todos</option>
@@ -349,6 +359,10 @@
                     <div class="form-group">
                         <label for="historicoAgendamentosPaciente">Paciente</label>
                         <select id="historicoAgendamentosPaciente"><option value="">Todos os pacientes</option></select>
+                    </div>
+                    <div class="form-group">
+                        <label for="historicoAgendamentosStatus">Status</label>
+                        <select id="historicoAgendamentosStatus"><option value="">Todos os status</option><option value="Agendado">Agendado</option><option value="Realizado">Realizado (Presença)</option><option value="Falta">Falta</option><option value="Cancelado">Cancelado</option></select>
                     </div>
                     <div class="form-group">
                         <label for="historicoAgendamentosModalidade">Modalidade</label>
