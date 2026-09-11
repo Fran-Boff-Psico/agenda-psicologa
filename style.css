@@ -1150,6 +1150,379 @@ body.tela-abertura-ativa {
     min-width: 165px;
 }
 
+/* Painel de indicadores estratégicos */
+.painel-estrategico {
+    max-width: 1380px;
+}
+
+.painel-estrategico-cabecalho {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 20px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--card-bg);
+}
+
+.painel-estrategico-cabecalho h3,
+.painel-estrategico-cabecalho p {
+    margin: 0;
+}
+
+.painel-estrategico-cabecalho h3 {
+    color: var(--text-dark);
+    font-size: 1.22rem;
+}
+
+.painel-estrategico-cabecalho p {
+    max-width: 570px;
+    margin-top: 7px;
+    color: var(--text-main);
+    font-size: 0.84rem;
+    line-height: 1.45;
+}
+
+.filtros-indicadores {
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.filtros-indicadores .form-group {
+    min-width: 146px;
+    margin: 0;
+}
+
+.filtros-indicadores label {
+    margin-bottom: 5px;
+    font-size: 0.72rem;
+}
+
+.filtros-indicadores input {
+    min-height: 40px;
+}
+
+.filtros-indicadores .btn-principal,
+.filtros-indicadores .btn-secundario {
+    width: auto;
+    min-height: 40px;
+    padding: 9px 13px;
+    white-space: nowrap;
+}
+
+.periodo-indicadores-descricao {
+    margin: 12px 0 16px;
+    color: #64748b;
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.kpis-estrategicos {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 12px;
+}
+
+.kpi-estrategico,
+.card-analise-estrategica {
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--card-bg);
+}
+
+.kpi-estrategico {
+    min-height: 126px;
+    padding: 16px;
+    border-top: 4px solid #64748b;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.kpi-estrategico span {
+    color: #64748b;
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.kpi-estrategico strong {
+    margin: 8px 0 4px;
+    color: var(--text-dark);
+    font-size: clamp(1.25rem, 2vw, 1.65rem);
+    line-height: 1.1;
+}
+
+.kpi-estrategico small {
+    color: var(--text-main);
+    font-size: 0.72rem;
+    line-height: 1.3;
+}
+
+.kpi-recebido { border-top-color: #16a34a; }
+.kpi-aberto { border-top-color: #f59e0b; }
+.kpi-saldo { border-top-color: var(--primary-color); }
+.kpi-efetividade { border-top-color: #14b8a6; }
+
+.grade-analises-estrategicas {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    margin-top: 14px;
+}
+
+.card-analise-estrategica {
+    min-width: 0;
+    padding: 18px;
+}
+
+.card-analise-amplo {
+    grid-column: span 2;
+}
+
+.card-analise-titulo {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.card-analise-titulo h4,
+.card-analise-titulo p {
+    margin: 0;
+}
+
+.card-analise-titulo h4 {
+    color: var(--text-dark);
+    font-size: 0.98rem;
+}
+
+.card-analise-titulo p {
+    margin-top: 4px;
+    color: #64748b;
+    font-size: 0.76rem;
+}
+
+.legenda-grafico {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 9px;
+    color: var(--text-main);
+    font-size: 0.72rem;
+    white-space: nowrap;
+}
+
+.legenda-grafico span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.legenda-grafico i {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+}
+
+.legenda-previsto { background: var(--primary-color); }
+.legenda-recebido { background: #16a34a; }
+
+.grafico-financeiro-estrategico {
+    display: grid;
+    gap: 12px;
+}
+
+.grupo-grafico-financeiro {
+    display: grid;
+    grid-template-columns: 104px minmax(100px, 1fr) 215px;
+    align-items: center;
+    gap: 10px;
+}
+
+.grupo-grafico-rotulo {
+    color: var(--text-main);
+    font-size: 0.76rem;
+    font-weight: 700;
+}
+
+.grupo-grafico-barras {
+    display: grid;
+    gap: 4px;
+}
+
+.barra-grafico {
+    display: block;
+    min-width: 0;
+    height: 10px;
+    border-radius: 99px;
+    transition: width 0.25s ease;
+}
+
+.barra-grafico-previsto { background: var(--primary-color); }
+.barra-grafico-recebido { background: #16a34a; }
+
+.grupo-grafico-valores {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    color: var(--text-main);
+    font-size: 0.71rem;
+    text-align: right;
+}
+
+.grupo-grafico-valores span:last-child { color: #16a34a; font-weight: 700; }
+
+.lista-distribuicao-indicadores {
+    display: grid;
+    gap: 13px;
+}
+
+.linha-distribuicao-cabecalho {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    color: var(--text-main);
+    font-size: 0.79rem;
+}
+
+.linha-distribuicao-cabecalho strong {
+    color: var(--text-dark);
+    white-space: nowrap;
+}
+
+.barra-distribuicao {
+    height: 8px;
+    margin-top: 6px;
+    overflow: hidden;
+    border-radius: 99px;
+    background: rgba(100, 116, 139, 0.2);
+}
+
+.barra-distribuicao-preenchimento {
+    display: block;
+    height: 100%;
+    min-width: 3px;
+    border-radius: inherit;
+}
+
+.indicador-status-agendado { background: #64748b; }
+.indicador-status-realizado { background: #16a34a; }
+.indicador-status-falta,
+.indicador-status-cancelado { background: #dc2626; }
+.indicador-modalidade-presencial { background: #8b5cf6; }
+.indicador-modalidade-online { background: #0ea5e9; }
+
+.ranking-pacientes-indicadores {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.ranking-pacientes-indicadores li {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.ranking-pacientes-indicadores li:last-child { border-bottom: 0; }
+
+.ranking-posicao {
+    display: grid;
+    width: 25px;
+    height: 25px;
+    place-items: center;
+    border-radius: 50%;
+    color: var(--primary-color);
+    background: color-mix(in srgb, var(--primary-color) 14%, transparent);
+    font-size: 0.75rem;
+    font-weight: 800;
+}
+
+.ranking-pacientes-indicadores strong,
+.ranking-pacientes-indicadores b {
+    color: var(--text-dark);
+    font-size: 0.82rem;
+}
+
+.ranking-pacientes-indicadores small {
+    display: block;
+    margin-top: 3px;
+    color: #64748b;
+    font-size: 0.7rem;
+}
+
+.ranking-pacientes-indicadores b { white-space: nowrap; }
+
+.lista-alertas-indicadores {
+    display: grid;
+    gap: 9px;
+}
+
+.alerta-indicador {
+    display: grid;
+    gap: 3px;
+    padding: 11px;
+    border-left: 4px solid #64748b;
+    border-radius: 6px;
+    background: rgba(100, 116, 139, 0.12);
+}
+
+.alerta-indicador strong { color: var(--text-dark); font-size: 0.8rem; }
+.alerta-indicador span { color: var(--text-main); font-size: 0.74rem; line-height: 1.4; }
+.alerta-critico { border-left-color: #dc2626; background: rgba(220, 38, 38, 0.12); }
+.alerta-atencao { border-left-color: #f59e0b; background: rgba(245, 158, 11, 0.12); }
+.alerta-positivo { border-left-color: #16a34a; background: rgba(22, 163, 74, 0.12); }
+
+.painel-sem-dados,
+.painel-carregando {
+    margin: 0;
+    padding: 22px;
+    color: var(--text-main);
+    text-align: center;
+    font-size: 0.84rem;
+}
+
+/* Sinal discreto: os dados anteriores permanecem na tela enquanto a nova
+   consulta é calculada em segundo plano. */
+.resultado-relatorio.atualizando-em-segundo-plano,
+.conteudo-indicadores.atualizando-em-segundo-plano {
+    position: relative;
+}
+
+.resultado-relatorio.atualizando-em-segundo-plano::after,
+.conteudo-indicadores.atualizando-em-segundo-plano::after {
+    content: 'Atualizando…';
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    z-index: 2;
+    padding: 4px 8px;
+    border-radius: 99px;
+    color: #fff;
+    background: var(--primary-color);
+    box-shadow: 0 2px 7px rgba(15, 23, 42, 0.22);
+    font-size: 0.67rem;
+    font-weight: 800;
+    animation: pulso-atualizacao-discreta 1.15s ease-in-out infinite alternate;
+}
+
+@keyframes pulso-atualizacao-discreta {
+    from { opacity: 0.6; }
+    to { opacity: 1; }
+}
+
 .historico-agendamentos-acoes {
     display: flex;
     gap: 8px;
@@ -2118,6 +2491,95 @@ body.dark-theme .box-escopo-conta small {
         flex: 0 0 auto;
         min-height: 42px;
         padding: 10px 14px;
+    }
+
+    .painel-estrategico-cabecalho {
+        align-items: stretch;
+        flex-direction: column;
+        padding: 15px;
+    }
+
+    .painel-estrategico-cabecalho h3,
+    .painel-estrategico-cabecalho p {
+        text-align: center;
+    }
+
+    .filtros-indicadores {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        justify-content: stretch;
+    }
+
+    .filtros-indicadores .form-group {
+        min-width: 0;
+    }
+
+    .filtros-indicadores .btn-principal,
+    .filtros-indicadores .btn-secundario {
+        width: 100%;
+        min-height: 42px;
+    }
+
+    .kpis-estrategicos {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 9px;
+    }
+
+    .kpi-estrategico {
+        min-height: 116px;
+        padding: 12px;
+    }
+
+    .kpi-estrategico strong {
+        font-size: 1.2rem;
+    }
+
+    .kpi-estrategico span,
+    .kpi-estrategico small {
+        font-size: 0.67rem;
+    }
+
+    .grade-analises-estrategicas {
+        grid-template-columns: 1fr;
+        gap: 10px;
+        margin-top: 10px;
+    }
+
+    .card-analise-estrategica,
+    .card-analise-amplo {
+        grid-column: auto;
+        padding: 14px;
+    }
+
+    .card-analise-titulo {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .legenda-grafico {
+        justify-content: flex-start;
+    }
+
+    .grupo-grafico-financeiro {
+        grid-template-columns: 76px minmax(70px, 1fr);
+        gap: 7px;
+    }
+
+    .grupo-grafico-valores {
+        grid-column: 2;
+        grid-template-columns: 1fr;
+        gap: 2px;
+        font-size: 0.66rem;
+        text-align: left;
+    }
+
+    .ranking-pacientes-indicadores li {
+        grid-template-columns: 26px minmax(0, 1fr);
+    }
+
+    .ranking-pacientes-indicadores b {
+        grid-column: 2;
+        font-size: 0.78rem;
     }
 
     .frame-documento {
