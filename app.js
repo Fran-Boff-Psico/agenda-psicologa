@@ -817,6 +817,7 @@ function mostrarTela(nomeTela, opcoes = {}) {
 
     const titulosModulos = {
         'dashboard': 'Agenda',
+        'indicadores': 'Indicadores Estratégicos',
         'agendaLivre': 'Agenda Livre',
         'pacientes': 'Pacientes',
         'relatorios': 'Relatórios',
@@ -836,6 +837,9 @@ function mostrarTela(nomeTela, opcoes = {}) {
         case 'dashboard':
             atualizarDashboard();
             carregarAgendaSemanal();
+            break;
+        case 'indicadores':
+            carregarIndicadoresEstrategicos();
             break;
         case 'agendaLivre':
             renderizarAgendaLivre();
@@ -881,6 +885,8 @@ window.mostrarTela = mostrarTela;
 function atualizarTelasFinanceirasAbertas() {
     if (telaAtual === 'dashboard') {
         atualizarIndicadoresFinanceirosDashboard();
+    } else if (telaAtual === 'indicadores') {
+        carregarIndicadoresEstrategicos();
     } else if (telaAtual === 'relatorios') {
         gerarRelatorioFinanceiro();
     } else if (telaAtual === 'contasReceber') {
@@ -890,6 +896,33 @@ function atualizarTelasFinanceirasAbertas() {
     } else if (telaAtual === 'novoPaciente' && idPacienteEditando) {
         renderizarSidebarCalendarioPaciente(idPacienteEditando, true);
     }
+}
+
+// Nas atualizações periódicas, preservamos o último resultado visível até a
+// resposta nova estar pronta. Assim a consulta não parece "sumir" a cada ciclo.
+function iniciarAtualizacaoSemApagar(container, mensagemInicial) {
+    if (!container) return false;
+    const possuiConteudoAnterior = container.dataset.conteudoCarregado === 'true';
+    container.setAttribute('aria-busy', 'true');
+    if (possuiConteudoAnterior) {
+        container.classList.add('atualizando-em-segundo-plano');
+    } else {
+        container.innerHTML = mensagemInicial;
+    }
+    return possuiConteudoAnterior;
+}
+
+function concluirAtualizacaoSemApagar(container) {
+    if (!container) return;
+    container.dataset.conteudoCarregado = 'true';
+    container.removeAttribute('aria-busy');
+    container.classList.remove('atualizando-em-segundo-plano');
+}
+
+function encerrarAtualizacaoSemApagar(container) {
+    if (!container) return;
+    container.removeAttribute('aria-busy');
+    container.classList.remove('atualizando-em-segundo-plano');
 }
 
 function emitirAlteracaoFinanceira() {
@@ -2754,6 +2787,223 @@ async function atualizarIndicadoresFinanceirosDashboard() {
     }
 }
 
+function obterPeriodoIndicadoresEstrategicos() {
+    const inicioInput = document.getElementById('indicadoresInicio');
+    const fimInput = document.getElementById('indicadoresFim');
+    const periodoPadrao = obterPeriodoMesAtual();
+
+    if (inicioInput && !inicioInput.value) inicioInput.value = formatarDataISO(periodoPadrao.inicio);
+    if (fimInput && !fimInput.value) fimInput.value = formatarDataISO(periodoPadrao.fim);
+
+    const inicioInformado = criarDataLocal(inicioInput?.value) || periodoPadrao.inicio;
+    const fimInformado = criarDataLocal(fimInput?.value) || periodoPadrao.fim;
+    const periodo = inicioInformado <= fimInformado
+        ? { inicio: inicioInformado, fim: fimInformado }
+        : { inicio: fimInformado, fim: inicioInformado };
+
+    if (inicioInput) inicioInput.value = formatarDataISO(periodo.inicio);
+    if (fimInput) fimInput.value = formatarDataISO(periodo.fim);
+    return periodo;
+}
+
+function definirPeriodoIndicadoresMesAtual() {
+    const periodo = obterPeriodoMesAtual();
+    const inicioInput = document.getElementById('indicadoresInicio');
+    const fimInput = document.getElementById('indicadoresFim');
+    if (inicioInput) inicioInput.value = formatarDataISO(periodo.inicio);
+    if (fimInput) fimInput.value = formatarDataISO(periodo.fim);
+    carregarIndicadoresEstrategicos();
+}
+window.definirPeriodoIndicadoresMesAtual = definirPeriodoIndicadoresMesAtual;
+
+function percentualIndicador(parte, total) {
+    if (!total) return 0;
+    return Math.round((Number(parte || 0) / Number(total || 0)) * 100);
+}
+
+function formatarDiaMes(data) {
+    return `${String(data.getDate()).padStart(2, '0')}/${String(data.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function criarListaDistribuicaoIndicadores(itens, total, classeCor = 'azul') {
+    const itensVisiveis = itens.filter(item => Number(item.valor || 0) > 0);
+    if (!itensVisiveis.length) return '<p class="painel-sem-dados">Sem registros neste período.</p>';
+    return `<div class="lista-distribuicao-indicadores">${itensVisiveis.map((item, indice) => {
+        const porcentagem = percentualIndicador(item.valor, total);
+        const sufixoClasse = item.classe || `${classeCor}-${indice % 4}`;
+        return `<div class="linha-distribuicao-indicadores">
+            <div class="linha-distribuicao-cabecalho"><span>${escaparHTML(item.rotulo)}</span><strong>${item.textoValor || `${item.valor} (${porcentagem}%)`}</strong></div>
+            <div class="barra-distribuicao"><span class="barra-distribuicao-preenchimento ${sufixoClasse}" style="width:${porcentagem}%"></span></div>
+        </div>`;
+    }).join('')}</div>`;
+}
+
+function criarGraficoFinanceiroIndicadores(lancamentos, inicio, fim) {
+    const totalDias = Math.max(0, Math.round((normalizarData(fim).getTime() - normalizarData(inicio).getTime()) / (1000 * 60 * 60 * 24)));
+    // Em períodos maiores, aumentamos a faixa para manter o gráfico legível
+    // sem esconder valores em uma rolagem horizontal extensa.
+    const tamanhoFaixa = totalDias > 84 ? Math.ceil((totalDias + 1) / 12) : 7;
+    const quantidadeFaixas = Math.max(1, Math.ceil((totalDias + 1) / tamanhoFaixa));
+    const faixas = Array.from({ length: quantidadeFaixas }, (_, indice) => {
+        const inicioFaixa = adicionarDias(inicio, indice * tamanhoFaixa);
+        const fimCalculado = adicionarDias(inicioFaixa, tamanhoFaixa - 1);
+        const fimFaixa = fimCalculado > fim ? fim : fimCalculado;
+        return { inicio: inicioFaixa, fim: fimFaixa, previsto: 0, recebido: 0 };
+    });
+
+    lancamentos.forEach(lancamento => {
+        if (!lancamento.dataObj) return;
+        const diasDesdeInicio = Math.round((normalizarData(lancamento.dataObj).getTime() - normalizarData(inicio).getTime()) / (1000 * 60 * 60 * 24));
+        const indice = Math.floor(diasDesdeInicio / tamanhoFaixa);
+        if (!faixas[indice]) return;
+        const valor = Number(lancamento.valor || 0);
+        faixas[indice].previsto += valor;
+        if (lancamento.pago) faixas[indice].recebido += valor;
+    });
+
+    const maiorValor = Math.max(1, ...faixas.flatMap(faixa => [faixa.previsto, faixa.recebido]));
+    return `<div class="grafico-financeiro-estrategico">${faixas.map(faixa => {
+        const previstoPct = Math.max(faixa.previsto ? 5 : 0, Math.round((faixa.previsto / maiorValor) * 100));
+        const recebidoPct = Math.max(faixa.recebido ? 5 : 0, Math.round((faixa.recebido / maiorValor) * 100));
+        return `<div class="grupo-grafico-financeiro">
+            <div class="grupo-grafico-rotulo">${formatarDiaMes(faixa.inicio)}–${formatarDiaMes(faixa.fim)}</div>
+            <div class="grupo-grafico-barras">
+                <span class="barra-grafico barra-grafico-previsto" style="width:${previstoPct}%" title="Previsto: ${formatarMoeda(faixa.previsto)}"></span>
+                <span class="barra-grafico barra-grafico-recebido" style="width:${recebidoPct}%" title="Recebido: ${formatarMoeda(faixa.recebido)}"></span>
+            </div>
+            <div class="grupo-grafico-valores"><span>${formatarMoeda(faixa.previsto)}</span><span>${formatarMoeda(faixa.recebido)}</span></div>
+        </div>`;
+    }).join('')}</div>`;
+}
+
+function criarRankingPacientesIndicadores(lancamentos) {
+    const ranking = new Map();
+    lancamentos.filter(item => item.pacienteId).forEach(item => {
+        const chave = String(item.pacienteId);
+        if (!ranking.has(chave)) ranking.set(chave, { nome: item.pacienteNome || 'Paciente sem nome', valor: 0, aberto: 0, sessoes: 0 });
+        const paciente = ranking.get(chave);
+        paciente.valor += Number(item.valor || 0);
+        paciente.sessoes += 1;
+        if (!item.pago) paciente.aberto += Number(item.valor || 0);
+    });
+
+    const pacientes = Array.from(ranking.values()).sort((a, b) => b.valor - a.valor || a.nome.localeCompare(b.nome)).slice(0, 5);
+    if (!pacientes.length) return '<p class="painel-sem-dados">Sem valores de atendimentos registrados neste período.</p>';
+    return `<ol class="ranking-pacientes-indicadores">${pacientes.map((paciente, indice) => `<li>
+        <span class="ranking-posicao">${indice + 1}</span>
+        <div><strong>${escaparHTML(paciente.nome)}</strong><small>${paciente.sessoes} atendimento${paciente.sessoes === 1 ? '' : 's'} · Em aberto: ${formatarMoeda(paciente.aberto)}</small></div>
+        <b>${formatarMoeda(paciente.valor)}</b>
+    </li>`).join('')}</ol>`;
+}
+
+function criarAlertasIndicadores({ emAtraso, canceladosComValor, faltasComValor, taxaRecebimento }) {
+    const alertas = [];
+    if (emAtraso.quantidade) alertas.push({ tipo: 'critico', titulo: 'Valores em atraso', texto: `${emAtraso.quantidade} lançamento${emAtraso.quantidade === 1 ? '' : 's'} em aberto de períodos já passados: ${formatarMoeda(emAtraso.valor)}.` });
+    if (faltasComValor.quantidade) alertas.push({ tipo: 'atencao', titulo: 'Faltas com valor', texto: `${faltasComValor.quantidade} falta${faltasComValor.quantidade === 1 ? '' : 's'} com valor financeiro no período: ${formatarMoeda(faltasComValor.valor)}.` });
+    if (canceladosComValor.quantidade) alertas.push({ tipo: 'atencao', titulo: 'Cancelamentos com taxa', texto: `${canceladosComValor.quantidade} cancelamento${canceladosComValor.quantidade === 1 ? '' : 's'} com valor financeiro no período: ${formatarMoeda(canceladosComValor.valor)}.` });
+    if (!alertas.length) alertas.push({ tipo: 'positivo', titulo: 'Acompanhamento em dia', texto: `Nenhum valor vencido foi identificado. Taxa de recebimento atual: ${taxaRecebimento}%.` });
+
+    return `<div class="lista-alertas-indicadores">${alertas.map(alerta => `<article class="alerta-indicador alerta-${alerta.tipo}"><strong>${alerta.titulo}</strong><span>${alerta.texto}</span></article>`).join('')}</div>`;
+}
+
+async function carregarIndicadoresEstrategicos() {
+    const conteudo = document.getElementById('conteudoIndicadores');
+    const descricaoPeriodo = document.getElementById('periodoIndicadoresDescricao');
+    if (!conteudo || !bancoDados) return;
+
+    const periodo = obterPeriodoIndicadoresEstrategicos();
+    const haviaConteudo = iniciarAtualizacaoSemApagar(conteudo, '<p class="painel-carregando">Atualizando visão estratégica...</p>');
+    const textoPeriodo = `Período analisado: ${formatarDataBR(periodo.inicio)} a ${formatarDataBR(periodo.fim)}`;
+    if (descricaoPeriodo) descricaoPeriodo.textContent = haviaConteudo ? `${textoPeriodo} · Atualizando em segundo plano...` : textoPeriodo;
+
+    try {
+        await sincronizarFinanceiroComBanco();
+        const base = await buscarBaseFinanceira();
+        if (!base) throw new Error('Base financeira indisponível.');
+
+        const contasReceber = filtrarContasParaRelatorio(contasNoPeriodo('receber', periodo.inicio, periodo.fim, base), base);
+        const contasPagar = filtrarContasDePacientesAtivos(contasNoPeriodo('pagar', periodo.inicio, periodo.fim, base), base);
+        const atendimentosFinanceiros = montarOcorrenciasFinanceiras(base, periodo.inicio, periodo.fim, '', true);
+        const lancamentos = atendimentosFinanceiros.concat(transformarContasReceberEmLinhas(contasReceber));
+        const historico = montarOcorrenciasHistoricoAgendamentos(base, periodo.inicio, periodo.fim);
+        const totais = calcularTotaisFinanceiros(lancamentos);
+        const totalPagar = totalizarContas(contasPagar);
+        const saldoProjetado = totais.previsto - totalPagar;
+        const hojeISO = formatarDataISO(normalizarData(new Date()));
+        const emAtrasoItens = lancamentos.filter(item => !item.pago && item.dataISO < hojeISO);
+        const canceladosComValorItens = atendimentosFinanceiros.filter(item => item.status === 'Cancelado');
+        const faltasComValorItens = atendimentosFinanceiros.filter(item => item.status === 'Falta');
+        const totalEncerrados = historico.filter(item => ['Realizado', 'Falta', 'Cancelado'].includes(item.status)).length;
+        const realizados = historico.filter(item => item.status === 'Realizado').length;
+        const efetividade = percentualIndicador(realizados, totalEncerrados);
+        const taxaRecebimento = percentualIndicador(totais.recebido, totais.previsto);
+        const valorItens = itens => itens.reduce((total, item) => total + Number(item.valor || 0), 0);
+        const statusOrdem = ['Agendado', 'Realizado', 'Falta', 'Cancelado'];
+        const dadosStatus = statusOrdem.map(status => ({
+            rotulo: status === 'Realizado' ? 'Realizado (Presença)' : status,
+            valor: historico.filter(item => item.status === status).length,
+            classe: `indicador-status-${status.toLowerCase()}`
+        }));
+        const modalidades = ['Presencial', 'Online'].map((modalidade, indice) => ({
+            rotulo: modalidade,
+            valor: historico.filter(item => item.modalidade === modalidade).length,
+            classe: indice === 0 ? 'indicador-modalidade-presencial' : 'indicador-modalidade-online'
+        }));
+        const pacientesAtivos = (base.pacientes || []).filter(paciente => paciente.status !== 'Inativo').length;
+
+        conteudo.innerHTML = `
+            <div class="kpis-estrategicos">
+                <article class="kpi-estrategico"><span>Receita prevista</span><strong>${formatarMoeda(totais.previsto)}</strong><small>Atendimentos e contas a receber</small></article>
+                <article class="kpi-estrategico kpi-recebido"><span>Recebido</span><strong>${formatarMoeda(totais.recebido)}</strong><small>${taxaRecebimento}% da receita prevista</small></article>
+                <article class="kpi-estrategico kpi-aberto"><span>Em aberto</span><strong>${formatarMoeda(totais.aReceber)}</strong><small>${emAtrasoItens.length} lançamento${emAtrasoItens.length === 1 ? '' : 's'} vencido${emAtrasoItens.length === 1 ? '' : 's'}</small></article>
+                <article class="kpi-estrategico kpi-saldo"><span>Saldo projetado</span><strong>${formatarMoeda(saldoProjetado)}</strong><small>Receita prevista menos despesas</small></article>
+                <article class="kpi-estrategico"><span>Atendimentos</span><strong>${historico.length}</strong><small>${realizados} realizado${realizados === 1 ? '' : 's'} no período</small></article>
+                <article class="kpi-estrategico kpi-efetividade"><span>Efetividade clínica</span><strong>${efetividade}%</strong><small>Realizados entre sessões encerradas</small></article>
+                <article class="kpi-estrategico"><span>Pacientes ativos</span><strong>${pacientesAtivos}</strong><small>Base ativa atual da clínica</small></article>
+            </div>
+            <div class="grade-analises-estrategicas">
+                <article class="card-analise-estrategica card-analise-amplo">
+                    <div class="card-analise-titulo"><div><h4>Receita e recebimentos</h4><p>Comparativo por faixa do período selecionado.</p></div><div class="legenda-grafico"><span><i class="legenda-previsto"></i>Previsto</span><span><i class="legenda-recebido"></i>Recebido</span></div></div>
+                    ${criarGraficoFinanceiroIndicadores(lancamentos, periodo.inicio, periodo.fim)}
+                </article>
+                <article class="card-analise-estrategica">
+                    <div class="card-analise-titulo"><div><h4>Atendimentos por status</h4><p>Distribuição clínica do período.</p></div></div>
+                    ${criarListaDistribuicaoIndicadores(dadosStatus, historico.length)}
+                </article>
+                <article class="card-analise-estrategica">
+                    <div class="card-analise-titulo"><div><h4>Modalidade de atendimento</h4><p>Presencial e online.</p></div></div>
+                    ${criarListaDistribuicaoIndicadores(modalidades, historico.length, 'modalidade')}
+                </article>
+                <article class="card-analise-estrategica card-analise-amplo">
+                    <div class="card-analise-titulo"><div><h4>Pacientes com maior volume financeiro</h4><p>Valor previsto no período e respectivos valores em aberto.</p></div></div>
+                    ${criarRankingPacientesIndicadores(atendimentosFinanceiros)}
+                </article>
+                <article class="card-analise-estrategica">
+                    <div class="card-analise-titulo"><div><h4>Pontos de atenção</h4><p>Sinais que merecem acompanhamento.</p></div></div>
+                    ${criarAlertasIndicadores({
+                        emAtraso: { quantidade: emAtrasoItens.length, valor: valorItens(emAtrasoItens) },
+                        canceladosComValor: { quantidade: canceladosComValorItens.length, valor: valorItens(canceladosComValorItens) },
+                        faltasComValor: { quantidade: faltasComValorItens.length, valor: valorItens(faltasComValorItens) },
+                        taxaRecebimento
+                    })}
+                </article>
+            </div>`;
+        concluirAtualizacaoSemApagar(conteudo);
+        if (descricaoPeriodo) {
+            const horario = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+            descricaoPeriodo.textContent = `${textoPeriodo} · Atualizado às ${horario}`;
+        }
+    } catch (erro) {
+        console.error(erro);
+        if (!haviaConteudo) {
+            conteudo.innerHTML = '<p class="painel-sem-dados">Não foi possível carregar os indicadores. Verifique a conexão e tente novamente.</p>';
+        }
+        encerrarAtualizacaoSemApagar(conteudo);
+        if (descricaoPeriodo && haviaConteudo) descricaoPeriodo.textContent = `${textoPeriodo} · Não foi possível atualizar agora.`;
+    }
+}
+window.carregarIndicadoresEstrategicos = carregarIndicadoresEstrategicos;
+
 async function carregarTelaRelatorios() {
     const inicioInput = document.getElementById('dataInicioRelatorio');
     const fimInput = document.getElementById('dataFimRelatorio');
@@ -2798,7 +3048,7 @@ async function gerarRelatorioFinanceiro() {
         return;
     }
 
-    resultado.innerHTML = 'Gerando relatório...';
+    const haviaConteudo = iniciarAtualizacaoSemApagar(resultado, 'Gerando relatório...');
 
     try {
         await sincronizarFinanceiroComBanco();
@@ -2849,6 +3099,7 @@ async function gerarRelatorioFinanceiro() {
 
         if (linhas.length === 0) {
             resultado.innerHTML = 'Nenhuma ocorrência encontrada para os filtros selecionados.';
+            concluirAtualizacaoSemApagar(resultado);
             return;
         }
 
@@ -2880,9 +3131,11 @@ async function gerarRelatorioFinanceiro() {
                 </tbody>
             </table>
         `;
+        concluirAtualizacaoSemApagar(resultado);
     } catch (err) {
         console.error(err);
-        resultado.innerHTML = 'Erro ao gerar relatório financeiro.';
+        if (!haviaConteudo) resultado.innerHTML = 'Erro ao gerar relatório financeiro.';
+        encerrarAtualizacaoSemApagar(resultado);
     }
 }
 
@@ -3010,7 +3263,7 @@ async function gerarHistoricoAgendamentos() {
     const fim = dataInicio <= dataFim ? dataFim : dataInicio;
     inicioInput.value = formatarDataISO(inicio);
     fimInput.value = formatarDataISO(fim);
-    resultado.innerHTML = 'Consultando agendamentos...';
+    const haviaConteudo = iniciarAtualizacaoSemApagar(resultado, 'Consultando agendamentos...');
     try {
         const base = await buscarBaseFinanceira();
         const paciente = document.getElementById('historicoAgendamentosPaciente')?.value || '';
@@ -3024,6 +3277,7 @@ async function gerarHistoricoAgendamentos() {
         ultimoHistoricoAgendamentos = criarDadosHistoricoAgendamentos(ocorrencias);
         if (!ocorrencias.length) {
             resultado.innerHTML = 'Nenhum agendamento encontrado para os filtros selecionados.';
+            concluirAtualizacaoSemApagar(resultado);
             return;
         }
         resultado.innerHTML = `<table class="tabela-relatorio"><thead><tr><th>Data</th><th>Paciente</th><th>Dia</th><th>Hora</th><th>Modalidade</th><th>Frequência</th><th>Status</th></tr></thead><tbody>${ocorrencias.map(item => `
@@ -3036,10 +3290,12 @@ async function gerarHistoricoAgendamentos() {
                 <td data-label="Frequência">${escaparHTML(item.frequencia)}</td>
                 <td data-label="Status">${escaparHTML(item.status)}</td>
             </tr>`).join('')}</tbody></table>`;
+        concluirAtualizacaoSemApagar(resultado);
     } catch (erro) {
         console.error(erro);
         ultimoHistoricoAgendamentos = null;
-        resultado.innerHTML = 'Não foi possível consultar o histórico de agendamentos.';
+        if (!haviaConteudo) resultado.innerHTML = 'Não foi possível consultar o histórico de agendamentos.';
+        encerrarAtualizacaoSemApagar(resultado);
     }
 }
 
