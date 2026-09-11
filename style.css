@@ -2112,6 +2112,14 @@ body.dark-theme .box-escopo-conta small {
         flex-direction: column;
     }
 
+    /* Em coluna, o flex-basis de desktop não pode virar altura. Mantemos a
+       largura total, mas com a mesma altura compacta dos demais botões. */
+    .historico-agendamentos-acoes button {
+        flex: 0 0 auto;
+        min-height: 42px;
+        padding: 10px 14px;
+    }
+
     .frame-documento {
         height: 72svh;
         min-height: 540px;
