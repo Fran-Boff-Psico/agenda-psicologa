@@ -393,6 +393,30 @@ body.tela-abertura-ativa {
 #listaContasReceber .tabela-relatorio th:last-child,
 #listaContasReceber .tabela-relatorio td:last-child { min-width: 76px; text-align: center; }
 
+.btn-editar-ocorrencia-financeira {
+    display: inline-grid;
+    width: 31px;
+    height: 31px;
+    place-items: center;
+    padding: 0;
+    border: 1px solid var(--primary-color);
+    border-radius: 6px;
+    color: var(--primary-color);
+    background: transparent;
+    cursor: pointer;
+}
+
+.btn-editar-ocorrencia-financeira:hover {
+    color: #fff;
+    background: var(--primary-color);
+}
+
+.btn-editar-ocorrencia-financeira svg {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+}
+
 .agenda-livre-cabecalho {
     display: flex;
     align-items: end;
