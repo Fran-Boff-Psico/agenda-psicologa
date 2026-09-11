@@ -1133,7 +1133,7 @@ async function carregarAgendaSemanal() {
                 const especificosHoje = agendamentos ? agendamentos.filter(a => a.data === dataISOChave) : [];
 
                 especificosHoje.forEach(esp => {
-                    if (pacienteVisivelNaAgenda(esp.paciente_id, dataISOChave) && esp.status !== 'Cancelado') {
+                    if (pacienteVisivelNaAgenda(esp.paciente_id, dataISOChave) && esp.status !== 'Cancelado' && !ehMarcadorDeReagendamento(esp)) {
                         const planoOrigem = planos ? planos.find(pl => pl.paciente_id === esp.paciente_id) : null;
                         itensDoDia.push({
                             id: esp.id,
@@ -1592,7 +1592,13 @@ window.abrirAgendamentoExtraPaciente = function() {
                 return;
             }
 
-            const payload = { paciente_id: idPacienteEditando, data: novaData, hora: novaHora, modalidade: novaMod, valor: novoVal, status: novoStat };
+            // Somente esta ação cria uma sessão Extra. A marca interna evita que
+            // reagendamentos pontuais sejam confundidos com atendimentos extras.
+            const payload = {
+                paciente_id: idPacienteEditando, data: novaData, hora: novaHora,
+                modalidade: novaMod, valor: novoVal, status: novoStat,
+                observacao: '__agenda_origem:extra'
+            };
             const { data: inserido, error: erroInserir } = await bancoDados.from('agendamentos').insert([payload]).select();
             if (erroInserir) throw erroInserir;
             await salvarStatusPagamentoOcorrencia(idPacienteEditando, novaData);
@@ -2462,6 +2468,9 @@ async function renderizarSidebarCalendarioPaciente(pacienteId, manterPeriodoAtua
             if (pacienteInativo && normalizarData(dataFoco) >= hoje) continue;
             const atendeRecorrencia = checarDataCorrespondeAoPlano(new Date(dataFoco), dataInicioStr, diaSemana, frequencia);
             const excecao = agendamentos.find(a => a.data === dataISO);
+            // Reagendado é uma marca técnica para impedir que o cronograma recrie
+            // a data original. Não é falta nem cancelamento clínico e não aparece.
+            if (ehMarcadorDeReagendamento(excecao)) continue;
 
             if (atendeRecorrencia || excecao) {
                 const exibData = formatarDataBR(dataFoco);
@@ -2504,6 +2513,19 @@ function normalizarHorarioParaLog(hora) {
     return String(hora || '').substring(0, 5);
 }
 
+function ehMarcadorDeReagendamento(agendamento) {
+    const observacao = String(agendamento?.observacao || '');
+    return agendamento?.status === 'Reagendado' || observacao.startsWith('__agenda_marcador:reagendado:');
+}
+
+function ehAgendamentoReagendado(agendamento) {
+    return String(agendamento?.observacao || '').startsWith('__agenda_origem:reagendamento:');
+}
+
+function ehAgendamentoExtraRegistrado(agendamento) {
+    return String(agendamento?.observacao || '').startsWith('__agenda_origem:extra');
+}
+
 function detalhesAlteracaoAgendamento(dadosAntes, dadosDepois, escopo) {
     if (escopo !== 'somente') {
         return `Cronograma atualizado a partir de ${formatarDataBR(criarDataLocal(dadosDepois.data))}.`;
@@ -2534,7 +2556,7 @@ async function executarSalvamentoPorEscopo(pacienteId, dataOriginalISO, novaData
     try {
         let dadosAntes = null;
         if (escopo === 'somente') {
-            const { data } = await bancoDados.from('agendamentos').select('id, data, hora, modalidade, valor, status')
+            const { data } = await bancoDados.from('agendamentos').select('id, data, hora, modalidade, valor, status, observacao')
                 .eq('paciente_id', pacienteId).eq('data', dataOriginalISO);
             dadosAntes = data?.[0] || { data: dataOriginalISO, origem: 'cronograma recorrente' };
         } else {
@@ -2543,9 +2565,29 @@ async function executarSalvamentoPorEscopo(pacienteId, dataOriginalISO, novaData
             dadosAntes = data?.[0] || null;
         }
         if (escopo === 'somente') {
-            const payload = { paciente_id: pacienteId, data: novaDataISO, hora: novaHora, modalidade: novaMod, valor: novoVal, status: statusSessao };
+            let precisaMarcadorDeReagendamento = false;
+            let observacaoDestino = dadosAntes?.observacao || null;
+
             if (novaDataISO !== dataOriginalISO) {
-                // A agenda recorrente precisa de uma exceção cancelada na data antiga.
+                const { data: planosOrigem, error: erroPlanoOrigem } = await bancoDados
+                    .from('planos_atendimento')
+                    .select('data_inicio, dia_semana, frequencia, ativo')
+                    .eq('paciente_id', pacienteId);
+                if (erroPlanoOrigem) throw erroPlanoOrigem;
+                precisaMarcadorDeReagendamento = (planosOrigem || []).some(plano =>
+                    plano.ativo !== false && checarDataCorrespondeAoPlano(criarDataLocal(dataOriginalISO), plano.data_inicio, plano.dia_semana, plano.frequencia)
+                );
+                // A nova data mantém a frequência clínica de origem, sem ser
+                // classificada como "Extra" no histórico.
+                if (precisaMarcadorDeReagendamento) observacaoDestino = `__agenda_origem:reagendamento:${dataOriginalISO}`;
+            }
+
+            const payload = {
+                paciente_id: pacienteId, data: novaDataISO, hora: novaHora,
+                modalidade: novaMod, valor: novoVal, status: statusSessao,
+                observacao: observacaoDestino
+            };
+            if (novaDataISO !== dataOriginalISO) {
                 // Primeiro removemos qualquer registro anterior desse paciente nessa data;
                 // assim uma alteração pontual nunca deixa a sessão antiga duplicada.
                 const { error: erroLimparDataOriginal } = await bancoDados
@@ -2555,10 +2597,18 @@ async function executarSalvamentoPorEscopo(pacienteId, dataOriginalISO, novaData
                     .eq('data', dataOriginalISO);
                 if (erroLimparDataOriginal) throw erroLimparDataOriginal;
 
-                const { error: erroCancelarDataOriginal } = await bancoDados
-                    .from('agendamentos')
-                    .insert([{ paciente_id: pacienteId, data: dataOriginalISO, hora: novaHora, status: 'Cancelado', modalidade: novaMod, valor: novoVal }]);
-                if (erroCancelarDataOriginal) throw erroCancelarDataOriginal;
+                if (precisaMarcadorDeReagendamento) {
+                    // Este marcador é técnico: bloqueia a recorrência original,
+                    // porém não representa cancelamento, falta ou valor a cobrar.
+                    const { error: erroSalvarMarcador } = await bancoDados
+                        .from('agendamentos')
+                        .insert([{
+                            paciente_id: pacienteId, data: dataOriginalISO, hora: novaHora,
+                            status: 'Reagendado', modalidade: novaMod, valor: 0,
+                            observacao: `__agenda_marcador:reagendado:${novaDataISO}`
+                        }]);
+                    if (erroSalvarMarcador) throw erroSalvarMarcador;
+                }
             }
 
             // Há apenas uma ocorrência por paciente/data. Limpar antes de inserir também
@@ -2636,6 +2686,7 @@ function montarOcorrenciasFinanceiras(base, dataInicio, dataFim, pacienteFiltro 
         especificosDia.forEach(ag => {
             if (!pacienteDisponivelNaData(ag.paciente_id, dataISO)) return;
             if (pacienteFiltro && String(ag.paciente_id) !== String(pacienteFiltro)) return;
+            if (ehMarcadorDeReagendamento(ag)) return;
 
             const planoOrigem = base.planos.find(pl => pl.paciente_id === ag.paciente_id) || {};
             const valor = Number(ag.valor ?? planoOrigem.valor ?? 0);
@@ -3158,6 +3209,7 @@ function montarOcorrenciasHistoricoAgendamentos(base, dataInicio, dataFim, pacie
     if (!base || !dataInicio || !dataFim) return [];
     const mapaPacientes = Object.fromEntries((base.pacientes || []).map(paciente => [String(paciente.id), paciente]));
     const ocorrencias = [];
+    const hojeISO = formatarDataISO(normalizarData(new Date()));
     const totalDias = Math.round((normalizarData(dataFim).getTime() - normalizarData(dataInicio).getTime()) / (1000 * 60 * 60 * 24));
 
     for (let indice = 0; indice <= totalDias; indice++) {
@@ -3166,9 +3218,18 @@ function montarOcorrenciasHistoricoAgendamentos(base, dataInicio, dataFim, pacie
         const especificosDia = (base.agendamentos || []).filter(item => item.data === dataISO);
         especificosDia.forEach(agendamento => {
             if (pacienteFiltro && String(agendamento.paciente_id) !== String(pacienteFiltro)) return;
+            if (ehMarcadorDeReagendamento(agendamento)) return;
             const plano = (base.planos || []).find(item => String(item.paciente_id) === String(agendamento.paciente_id));
             const pertenceAoCronograma = plano && checarDataCorrespondeAoPlano(dataFoco, plano.data_inicio, plano.dia_semana, plano.frequencia);
             const paciente = mapaPacientes[String(agendamento.paciente_id)] || {};
+            // O histórico preserva as datas passadas de pacientes inativos,
+            // mas não deve sugerir que ainda possuem sessões futuras.
+            if (paciente.status === 'Inativo' && dataISO >= hojeISO) return;
+            const frequenciaExibida = pertenceAoCronograma
+                ? (plano.frequencia || 'Semanal')
+                : (ehAgendamentoReagendado(agendamento)
+                    ? (plano?.frequencia || 'Semanal')
+                    : (ehAgendamentoExtraRegistrado(agendamento) ? 'Extra' : 'Ocorrência avulsa'));
             ocorrencias.push({
                 pacienteId: agendamento.paciente_id,
                 pacienteNome: paciente.nome || 'Paciente sem nome',
@@ -3176,7 +3237,7 @@ function montarOcorrenciasHistoricoAgendamentos(base, dataInicio, dataFim, pacie
                 dataObj: dataFoco,
                 hora: agendamento.hora?.substring(0, 5) || plano?.hora_padrao?.substring(0, 5) || '--:--',
                 modalidade: agendamento.modalidade || plano?.modalidade || 'Presencial',
-                frequencia: pertenceAoCronograma ? (plano.frequencia || 'Semanal') : 'Extra',
+                frequencia: frequenciaExibida,
                 status: agendamento.status || 'Agendado'
             });
         });
@@ -3187,6 +3248,7 @@ function montarOcorrenciasHistoricoAgendamentos(base, dataInicio, dataFim, pacie
             const possuiAgendamentoEspecifico = especificosDia.some(item => String(item.paciente_id) === String(plano.paciente_id));
             if (possuiAgendamentoEspecifico || !checarDataCorrespondeAoPlano(dataFoco, plano.data_inicio, plano.dia_semana, plano.frequencia)) return;
             const paciente = mapaPacientes[String(plano.paciente_id)] || {};
+            if (paciente.status === 'Inativo' && dataISO >= hojeISO) return;
             ocorrencias.push({
                 pacienteId: plano.paciente_id,
                 pacienteNome: paciente.nome || 'Paciente sem nome',
@@ -3557,6 +3619,10 @@ function filtroPacienteContasReceber() {
     return document.getElementById('filtroReceberPaciente')?.value || '';
 }
 
+function filtroStatusAtendimentoContasReceber() {
+    return document.getElementById('filtroReceberStatusAtendimento')?.value || '';
+}
+
 function montarIndicadorPagamento(linha) {
     return `<span class="${linha.pago ? 'badge-pago' : 'badge-aberto'}">${linha.pago ? 'Pago' : 'Em aberto'}</span>`;
 }
@@ -3580,6 +3646,19 @@ function montarControlePagamentoFinanceiro(linha, tipo, contaManual) {
     return `<label class="checkbox-pagamento checkbox-tabela"><input type="checkbox" ${linha.pago ? 'checked' : ''} onchange="alternarContaPaga('${contaId}', '${tipo}', this.checked, '${chavePagamento}')"><span>Pago</span></label>`;
 }
 
+function montarBotaoEditarOcorrenciaFinanceira(linha, tipo) {
+    // Lançamentos manuais não representam uma sessão clínica. Para sessões da
+    // agenda, o lápis abre exatamente o mesmo editor de ocorrência da Agenda.
+    if (tipo !== 'receber' || !linha?.pacienteId || !linha?.dataISO || !linha?.hora || linha.hora === '--:--') return '';
+    const pacienteId = String(linha.pacienteId).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const dataISO = String(linha.dataISO).replace(/'/g, "\\'");
+    const hora = String(linha.hora).replace(/'/g, "\\'");
+    const modalidade = String(linha.modalidade || 'Presencial').replace(/'/g, "\\'");
+    const valor = Number(linha.valor || 0);
+    const status = String(linha.status || 'Agendado').replace(/'/g, "\\'");
+    return `<button type="button" class="btn-editar-ocorrencia-financeira" title="Editar ocorrência" aria-label="Editar ocorrência de ${escaparHTML(linha.pacienteNome || 'paciente')}" onclick="abrirEditorDiretoAgenda('${pacienteId}', '${dataISO}', '${hora}', '${modalidade}', '${valor}', '${status}')"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 16.75V20h3.25L17.4 9.85l-3.25-3.25L4 16.75Zm15.71-9.04a1 1 0 0 0 0-1.42l-2-2a1 1 0 0 0-1.42 0l-1.57 1.57 3.25 3.25 1.74-1.36Z"/></svg></button>`;
+}
+
 function montarCardsFinanceirosMobile(detalhes) {
     const grupos = new Map();
     detalhes.forEach(detalhe => {
@@ -3591,7 +3670,7 @@ function montarCardsFinanceirosMobile(detalhes) {
     return `<div class="lista-contas-mobile">${Array.from(grupos.entries()).map(([nome, itens]) => `
         <article class="card-conta-mobile">
             <h4>${escaparHTML(nome)}</h4>
-            ${itens.map(({ linha, statusAtendimento, pagamento, controlePagamento, acao }) => `
+            ${itens.map(({ linha, statusAtendimento, pagamento, controlePagamento, acao, editar }) => `
                 <div class="item-conta-mobile">
                     <div class="item-conta-mobile-topo"><strong>${formatarDataBR(linha.dataObj)}</strong><strong>${formatarMoeda(linha.valor)}</strong></div>
                     <div class="item-conta-mobile-linha"><span>Categoria</span><span>${escaparHTML(linha.modalidade || '—')}</span></div>
@@ -3599,6 +3678,7 @@ function montarCardsFinanceirosMobile(detalhes) {
                     <div class="item-conta-mobile-linha"><span>Status</span><span>${escaparHTML(statusAtendimento)}</span></div>
                     <div class="item-conta-mobile-linha"><span>Pagamento</span>${pagamento}</div>
                     ${controlePagamento ? `<div class="item-conta-mobile-linha"><span>Marcar como pago</span>${controlePagamento}</div>` : ''}
+                    ${editar ? `<div class="item-conta-mobile-linha item-conta-mobile-acoes"><span>Editar ocorrência</span>${editar}</div>` : ''}
                     ${acao ? `<div class="item-conta-mobile-linha item-conta-mobile-acoes">${acao}</div>` : ''}
                 </div>
             `).join('')}
@@ -3646,6 +3726,10 @@ async function carregarTelaContas(tipo) {
     if (pacienteFiltro) {
         linhas = linhas.filter(linha => String(linha.pacienteId || '') === String(pacienteFiltro));
     }
+    const statusAtendimentoFiltro = tipo === 'receber' ? filtroStatusAtendimentoContasReceber() : '';
+    if (statusAtendimentoFiltro) {
+        linhas = linhas.filter(linha => linha.status === statusAtendimentoFiltro);
+    }
     if (tipo === 'receber') totais = calcularTotaisFinanceiros(linhas);
 
     atualizarCardsFinanceiros(totais, pagarEmAberto, tipo === 'pagar' ? { pagar: 'pagarTotal', saldo: 'pagarSaldo' } : { previsto: 'receberPrevisto', recebido: 'receberRecebido', aberto: 'receberAberto', pagar: 'receberPagar', saldo: 'receberSaldo' }, pagarConsideradoNoSaldo);
@@ -3665,10 +3749,12 @@ async function carregarTelaContas(tipo) {
             ? montarControlePagamentoFinanceiro(linha, tipo, contaManual)
             : '';
         const acao = contaManual && !linha.recorrente ? `<button class="btn-perigo btn-conta-excluir" onclick="excluirContaManual('${linha.contaId}', '${tipo}')">Excluir</button>` : '';
-        return { linha, statusAtendimento, pagamento, controlePagamento, acao };
+        const editar = montarBotaoEditarOcorrenciaFinanceira(linha, tipo);
+        return { linha, statusAtendimento, pagamento, controlePagamento, acao, editar };
     });
     const tituloUltimaColuna = tipo === 'receber' ? 'Pago' : '';
-    lista.innerHTML = `${montarCardsFinanceirosMobile(detalhes)}<table class="tabela-relatorio"><thead><tr><th>Data</th><th>Paciente / Descrição</th><th>Categoria</th><th>Status do atendimento</th><th>Pagamento</th><th>Valor</th><th>${tituloUltimaColuna}</th></tr></thead><tbody>${detalhes.map(({ linha, statusAtendimento, pagamento, controlePagamento, acao }) => `<tr><td data-label="Data">${formatarDataBR(linha.dataObj)}</td><td data-label="Paciente / Descrição">${escaparHTML(linha.pacienteNome)}</td><td data-label="Categoria">${escaparHTML(linha.modalidade || '')}</td><td data-label="Status do atendimento">${escaparHTML(statusAtendimento)}</td><td data-label="Pagamento">${pagamento}</td><td data-label="Valor">${formatarMoeda(linha.valor)}</td><td data-label="Pago" class="celula-acoes-tabela">${controlePagamento}${acao}</td></tr>`).join('')}</tbody></table>`;
+    const colunaEditar = tipo === 'receber' ? '<th>Editar</th>' : '';
+    lista.innerHTML = `${montarCardsFinanceirosMobile(detalhes)}<table class="tabela-relatorio"><thead><tr><th>Data</th><th>Paciente / Descrição</th><th>Categoria</th><th>Status do atendimento</th><th>Pagamento</th><th>Valor</th><th>${tituloUltimaColuna}</th>${colunaEditar}</tr></thead><tbody>${detalhes.map(({ linha, statusAtendimento, pagamento, controlePagamento, acao, editar }) => `<tr><td data-label="Data">${formatarDataBR(linha.dataObj)}</td><td data-label="Paciente / Descrição">${escaparHTML(linha.pacienteNome)}</td><td data-label="Categoria">${escaparHTML(linha.modalidade || '')}</td><td data-label="Status do atendimento">${escaparHTML(statusAtendimento)}</td><td data-label="Pagamento">${pagamento}</td><td data-label="Valor">${formatarMoeda(linha.valor)}</td><td data-label="Pago" class="celula-acoes-tabela">${controlePagamento}${acao}</td>${tipo === 'receber' ? `<td data-label="Editar" class="celula-acoes-tabela">${editar}</td>` : ''}</tr>`).join('')}</tbody></table>`;
 }
 
 function alternarDescricaoContaPagarOcorrencia() {
