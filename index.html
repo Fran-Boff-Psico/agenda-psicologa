@@ -36,6 +36,7 @@
         <div id="subtituloClinicaTexto" class="sidebar-brand-subtitle">CRP 07/42161</div>
         </div>
         <button onclick="mostrarTela('dashboard')">Agenda</button>
+        <button onclick="mostrarTela('indicadores')">Indicadores</button>
         <button onclick="mostrarTela('agendaLivre')">Agenda Livre</button>
         <button onclick="mostrarTela('pacientes')">Pacientes</button>
         <button type="button" onclick="alternarSubmenuFinanceiro()">Financeiro</button>
@@ -94,6 +95,31 @@
                 <strong data-total-ativos>0</strong>
             </div>
             <div id="grade-agenda-container"></div>
+        </div>
+
+        <div id="indicadores" class="tela">
+            <section class="painel-estrategico">
+                <div class="painel-estrategico-cabecalho">
+                    <div>
+                        <h3>Visão Estratégica</h3>
+                        <p>Indicadores clínicos, financeiros e operacionais consolidados a partir dos atendimentos e pagamentos registrados.</p>
+                    </div>
+                    <div class="filtros-indicadores">
+                        <div class="form-group">
+                            <label for="indicadoresInicio">Período inicial</label>
+                            <input type="date" id="indicadoresInicio">
+                        </div>
+                        <div class="form-group">
+                            <label for="indicadoresFim">Período final</label>
+                            <input type="date" id="indicadoresFim">
+                        </div>
+                        <button type="button" class="btn-secundario" onclick="definirPeriodoIndicadoresMesAtual()">Mês atual</button>
+                        <button type="button" class="btn-principal" onclick="carregarIndicadoresEstrategicos()">Atualizar painel</button>
+                    </div>
+                </div>
+                <div id="periodoIndicadoresDescricao" class="periodo-indicadores-descricao"></div>
+                <div id="conteudoIndicadores" class="conteudo-indicadores" aria-live="polite">Carregando indicadores...</div>
+            </section>
         </div>
 
         <div id="agendaLivre" class="tela">
