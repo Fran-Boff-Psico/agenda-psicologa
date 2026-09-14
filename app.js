@@ -2515,7 +2515,11 @@ function normalizarHorarioParaLog(hora) {
 
 function ehMarcadorDeReagendamento(agendamento) {
     const observacao = String(agendamento?.observacao || '');
-    return agendamento?.status === 'Reagendado' || observacao.startsWith('__agenda_marcador:reagendado:');
+    // Marcadores internos nunca são atendimento clínico. Eles existem somente
+    // para impedir que o cronograma recrie uma data que foi movida/ocultada.
+    // Por isso não podem aparecer como "Cancelado", gerar valores ou entrar
+    // em relatórios.
+    return agendamento?.status === 'Reagendado' || observacao.startsWith('__agenda_marcador:');
 }
 
 function ehAgendamentoReagendado(agendamento) {
@@ -2600,12 +2604,14 @@ async function executarSalvamentoPorEscopo(pacienteId, dataOriginalISO, novaData
                 if (precisaMarcadorDeReagendamento) {
                     // Este marcador é técnico: bloqueia a recorrência original,
                     // porém não representa cancelamento, falta ou valor a cobrar.
+                    // O status permanece Agendado porque o marcador é ocultado
+                    // pelas telas; assim nunca grava um cancelamento indevido.
                     const { error: erroSalvarMarcador } = await bancoDados
                         .from('agendamentos')
                         .insert([{
                             paciente_id: pacienteId, data: dataOriginalISO, hora: novaHora,
-                            status: 'Reagendado', modalidade: novaMod, valor: 0,
-                            observacao: `__agenda_marcador:reagendado:${novaDataISO}`
+                            status: 'Agendado', modalidade: novaMod, valor: 0,
+                            observacao: `__agenda_marcador:reagendamento:${novaDataISO}`
                         }]);
                     if (erroSalvarMarcador) throw erroSalvarMarcador;
                 }
@@ -3225,11 +3231,12 @@ function montarOcorrenciasHistoricoAgendamentos(base, dataInicio, dataFim, pacie
             // O histórico preserva as datas passadas de pacientes inativos,
             // mas não deve sugerir que ainda possuem sessões futuras.
             if (paciente.status === 'Inativo' && dataISO >= hojeISO) return;
-            const frequenciaExibida = pertenceAoCronograma
-                ? (plano.frequencia || 'Semanal')
-                : (ehAgendamentoReagendado(agendamento)
-                    ? (plano?.frequencia || 'Semanal')
-                    : (ehAgendamentoExtraRegistrado(agendamento) ? 'Extra' : 'Ocorrência avulsa'));
+            // A palavra "Extra" só pode ser usada para uma sessão inserida pelo
+            // botão próprio. Datas editadas/reagendadas mantêm a frequência do
+            // plano clínico, inclusive nos registros mais antigos.
+            const frequenciaExibida = ehAgendamentoExtraRegistrado(agendamento)
+                ? 'Extra'
+                : (plano?.frequencia || (pertenceAoCronograma ? 'Semanal' : 'Sem frequência'));
             ocorrencias.push({
                 pacienteId: agendamento.paciente_id,
                 pacienteNome: paciente.nome || 'Paciente sem nome',
@@ -4534,18 +4541,6 @@ async function salvarPaciente() {
             await bancoDados.from('planos_atendimento').insert([payloadPlano]);
         }
 
-        if (payloadPaciente.status === 'Inativo') {
-            // Mantém todo o histórico e apenas cancela os compromissos estritamente
-            // futuros. As recorrências deixam de existir ao desativar o plano.
-            const hojeISO = formatarDataISO(normalizarData(new Date()));
-            const { error: erroCancelarFuturos } = await bancoDados
-                .from('agendamentos')
-                .update({ status: 'Cancelado' })
-                .eq('paciente_id', pacienteId)
-                .gt('data', hojeISO)
-                .neq('status', 'Realizado');
-            if (erroCancelarFuturos) throw erroCancelarFuturos;
-        }
         await registrarLogSistema({
             acao: pacienteAnterior ? 'Paciente atualizado' : 'Paciente cadastrado',
             entidade: 'paciente',
@@ -4553,7 +4548,7 @@ async function salvarPaciente() {
             pacienteId,
             pacienteNome: payloadPaciente.nome,
             detalhes: payloadPaciente.status === 'Inativo'
-                ? 'Paciente marcado como inativo; sessões futuras foram canceladas.'
+                ? 'Paciente marcado como inativo; as projeções futuras foram ocultadas sem alterar o histórico de status.'
                 : (pacienteAnterior ? 'Dados do perfil e do plano clínico atualizados.' : 'Novo paciente e plano clínico cadastrados.'),
             dadosAntes: pacienteAnterior ? { status: pacienteAnterior.status } : null,
             dadosDepois: { status: payloadPaciente.status, frequencia: payloadPlano.frequencia, horario: payloadPlano.hora_padrao, modalidade: payloadPlano.modalidade, valor: payloadPlano.valor }
