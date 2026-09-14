@@ -36,7 +36,6 @@
         <div id="subtituloClinicaTexto" class="sidebar-brand-subtitle">CRP 07/42161</div>
         </div>
         <button onclick="mostrarTela('dashboard')">Agenda</button>
-        <button onclick="mostrarTela('indicadores')">Indicadores</button>
         <button onclick="mostrarTela('agendaLivre')">Agenda Livre</button>
         <button onclick="mostrarTela('pacientes')">Pacientes</button>
         <button type="button" onclick="alternarSubmenuFinanceiro()">Financeiro</button>
@@ -50,6 +49,7 @@
             <button onclick="mostrarTela('historicoAgendamentos')">Histórico de agendamentos</button>
             <button type="button" onclick="abrirHistoricoLogs()">Consulta de logs</button>
         </div>
+        <button onclick="mostrarTela('indicadores')">Indicadores</button>
         <button type="button" onclick="alternarSubmenuDocumentos()">Documentos</button>
         <div id="submenuDocumentos" class="submenu-documentos">
             <button type="button" onclick="abrirTermoCompromisso()">Termo de compromisso</button>
@@ -396,7 +396,7 @@
                     </div>
                     <div class="form-group">
                         <label for="historicoAgendamentosFrequencia">Frequência</label>
-                        <select id="historicoAgendamentosFrequencia"><option value="">Todas</option><option value="Semanal">Semanal</option><option value="Quinzenal">Quinzenal</option><option value="Mensal">Mensal</option><option value="Extra">Extra</option><option value="Ocorrência avulsa">Ocorrência avulsa</option></select>
+                        <select id="historicoAgendamentosFrequencia"><option value="">Todas</option><option value="Semanal">Semanal</option><option value="Quinzenal">Quinzenal</option><option value="Mensal">Mensal</option><option value="Extra">Extra</option></select>
                     </div>
                 </div>
                 <div class="relatorio-botao-grupo historico-agendamentos-acoes">
