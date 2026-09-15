@@ -44,6 +44,7 @@ let ultimaSincronizacaoFinanceira = 0;
 let verificacaoFinanceiraIniciada = false;
 let filtroAgendaAtivo = null;
 let modoModalAgendamento = 'editar';
+let salvamentoAgendamentoEmAndamento = false;
 let ultimoHistoricoAgendamentos = null;
 const CHAVE_LOGS_LOCAIS = 'agenda_logs_sistema_v1';
 const canalFinanceiro = typeof BroadcastChannel !== 'undefined'
@@ -1484,6 +1485,7 @@ window.abrirEditorDiretoAgenda = function(pacienteId, dataISO, hora, modalidade,
     carregarContaPagarOcorrencia(pacienteId, dataISO);
 
     document.getElementById('btnPersistirAgendamento').onclick = async function() {
+        if (salvamentoAgendamentoEmAndamento) return;
         let escopoAtendimento = document.getElementById('escopoModificacaoAgenda').value;
         const escopoContaPagar = document.getElementById('escopoContaPagarOcorrencia')?.value || 'somente';
         const novaData = document.getElementById('dataAgendamento').value;
@@ -1495,16 +1497,36 @@ window.abrirEditorDiretoAgenda = function(pacienteId, dataISO, hora, modalidade,
         if (novaFreq !== document.getElementById('frequenciaAgendamento')?.dataset.original) escopoAtendimento = 'demais';
         if (!validarContaPagarOcorrencia()) return;
 
-        const agendamentoSalvo = await executarSalvamentoPorEscopo(pacienteId, dataISO, novaData, novaHora, novaMod, novoVal, novoStat, escopoAtendimento, novaFreq);
-        if (!agendamentoSalvo) return;
-        await salvarStatusPagamentoOcorrencia(pacienteId, novaData);
-        await salvarContaPagarOcorrencia(pacienteId, dataISO, novaData, escopoContaPagar, novaFreq);
-        if (novaData !== dataISO) {
-            await removerPagamentoAtendimentoNoBanco(pacienteId, dataISO);
+        // Cancelamento é uma decisão clínica/financeira explícita. A confirmação
+        // impede que uma edição comum, um clique repetido ou um estado antigo do
+        // formulário transforme a sessão em Cancelado por engano.
+        if (novoStat === 'Cancelado' && status !== 'Cancelado') {
+            const pacienteNome = document.getElementById('nome')?.value || 'este paciente';
+            const confirmarCancelamento = confirm(`Confirmar cancelamento da sessão de ${pacienteNome} em ${formatarDataBR(criarDataLocal(novaData))}?`);
+            if (!confirmarCancelamento) return;
         }
-        fecharModalAgendamento();
-        carregarAgendaSemanal();
-        renderizarSidebarCalendarioPaciente(idPacienteEditando, true);
+
+        const botaoConfirmar = this;
+        const textoOriginal = botaoConfirmar.innerText;
+        salvamentoAgendamentoEmAndamento = true;
+        botaoConfirmar.disabled = true;
+        botaoConfirmar.innerText = 'Salvando...';
+        try {
+            const agendamentoSalvo = await executarSalvamentoPorEscopo(pacienteId, dataISO, novaData, novaHora, novaMod, novoVal, novoStat, escopoAtendimento, novaFreq);
+            if (!agendamentoSalvo) return;
+            await salvarStatusPagamentoOcorrencia(pacienteId, novaData);
+            await salvarContaPagarOcorrencia(pacienteId, dataISO, novaData, escopoContaPagar, novaFreq);
+            if (novaData !== dataISO) {
+                await removerPagamentoAtendimentoNoBanco(pacienteId, dataISO);
+            }
+            fecharModalAgendamento();
+            carregarAgendaSemanal();
+            renderizarSidebarCalendarioPaciente(idPacienteEditando, true);
+        } finally {
+            salvamentoAgendamentoEmAndamento = false;
+            botaoConfirmar.disabled = false;
+            botaoConfirmar.innerText = textoOriginal;
+        }
     };
 
     modal.style.display = 'flex';
