@@ -2955,6 +2955,128 @@ function criarGraficoFinanceiroIndicadores(lancamentos, inicio, fim) {
     }).join('')}</div>`;
 }
 
+function criarEvolucaoFinanceiraIndicadores(lancamentos, contasPagar, inicio, fim) {
+    const totalDias = Math.max(0, Math.round((normalizarData(fim).getTime() - normalizarData(inicio).getTime()) / (1000 * 60 * 60 * 24)));
+    const tamanhoFaixa = totalDias > 184 ? 30 : (totalDias > 62 ? 14 : 7);
+    const quantidadeFaixas = Math.max(1, Math.ceil((totalDias + 1) / tamanhoFaixa));
+    const faixas = Array.from({ length: quantidadeFaixas }, (_, indice) => {
+        const inicioFaixa = adicionarDias(inicio, indice * tamanhoFaixa);
+        const fimCalculado = adicionarDias(inicioFaixa, tamanhoFaixa - 1);
+        return {
+            inicio: inicioFaixa,
+            fim: fimCalculado > fim ? fim : fimCalculado,
+            recebido: 0,
+            emAberto: 0,
+            despesas: 0,
+            saldoAcumulado: 0
+        };
+    });
+
+    const obterFaixa = dataReferencia => {
+        const data = dataReferencia instanceof Date ? normalizarData(dataReferencia) : criarDataLocal(dataReferencia);
+        if (!data) return null;
+        const diasDesdeInicio = Math.round((data.getTime() - normalizarData(inicio).getTime()) / (1000 * 60 * 60 * 24));
+        return faixas[Math.floor(diasDesdeInicio / tamanhoFaixa)] || null;
+    };
+
+    lancamentos.forEach(lancamento => {
+        const faixa = obterFaixa(lancamento.dataObj || lancamento.dataISO);
+        if (!faixa) return;
+        const valor = Number(lancamento.valor || 0);
+        if (lancamento.pago) faixa.recebido += valor;
+        else faixa.emAberto += valor;
+    });
+    (contasPagar || []).forEach(conta => {
+        const faixa = obterFaixa(conta.data || conta.dataISO || conta.dataObj);
+        if (faixa) faixa.despesas += Number(conta.valor || 0);
+    });
+
+    let saldoAcumulado = 0;
+    faixas.forEach(faixa => {
+        saldoAcumulado += faixa.recebido - faixa.despesas;
+        faixa.saldoAcumulado = saldoAcumulado;
+    });
+    const maiorValor = Math.max(1, ...faixas.flatMap(faixa => [faixa.recebido, faixa.emAberto, faixa.despesas]));
+
+    return `<div class="evolucao-financeira-indicadores">${faixas.map(faixa => {
+        const percentual = valor => Math.max(valor ? 5 : 0, Math.round((valor / maiorValor) * 100));
+        const classeSaldo = faixa.saldoAcumulado >= 0 ? 'saldo-positivo' : 'saldo-negativo';
+        return `<article class="faixa-evolucao-financeira">
+            <div class="faixa-evolucao-cabecalho">
+                <strong>${formatarDiaMes(faixa.inicio)}–${formatarDiaMes(faixa.fim)}</strong>
+                <span>Saldo acumulado <b class="${classeSaldo}">${formatarMoeda(faixa.saldoAcumulado)}</b></span>
+            </div>
+            <div class="linhas-evolucao-financeira">
+                <div><span>Recebido</span><i><b class="evolucao-recebido" style="width:${percentual(faixa.recebido)}%"></b></i><strong>${formatarMoeda(faixa.recebido)}</strong></div>
+                <div><span>Em aberto</span><i><b class="evolucao-aberto" style="width:${percentual(faixa.emAberto)}%"></b></i><strong>${formatarMoeda(faixa.emAberto)}</strong></div>
+                <div><span>Despesas</span><i><b class="evolucao-despesas" style="width:${percentual(faixa.despesas)}%"></b></i><strong>${formatarMoeda(faixa.despesas)}</strong></div>
+            </div>
+        </article>`;
+    }).join('')}</div>`;
+}
+
+function criarFaturamentoMensalIndicadores(lancamentos, contasPagar, ano) {
+    const nomesMeses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+    const meses = nomesMeses.map((nome, indice) => ({ nome, indice, faturado: 0, recebido: 0, despesas: 0 }));
+    const registrar = (colecao, tipo) => (colecao || []).forEach(item => {
+        const data = item.dataObj instanceof Date ? item.dataObj : criarDataLocal(item.dataISO || item.data);
+        if (!data || data.getFullYear() !== ano) return;
+        const mes = meses[data.getMonth()];
+        const valor = Number(item.valor || 0);
+        if (tipo === 'lancamento') {
+            mes.faturado += valor;
+            if (item.pago) mes.recebido += valor;
+        } else {
+            mes.despesas += valor;
+        }
+    });
+    registrar(lancamentos, 'lancamento');
+    registrar(contasPagar, 'despesa');
+
+    return `<div class="faturamento-anual-indicadores">${meses.map(mes => {
+        const emAberto = mes.faturado - mes.recebido;
+        const saldo = mes.recebido - mes.despesas;
+        const classeSaldo = saldo >= 0 ? 'saldo-positivo' : 'saldo-negativo';
+        return `<article class="card-faturamento-mensal">
+            <h5>${mes.nome}</h5>
+            <div><span>Faturado</span><strong>${formatarMoeda(mes.faturado)}</strong></div>
+            <div><span>Recebido</span><strong class="faturamento-recebido">${formatarMoeda(mes.recebido)}</strong></div>
+            <div><span>Em aberto</span><strong class="faturamento-aberto">${formatarMoeda(emAberto)}</strong></div>
+            <div class="faturamento-saldo"><span>Saldo</span><strong class="${classeSaldo}">${formatarMoeda(saldo)}</strong></div>
+        </article>`;
+    }).join('')}</div>`;
+}
+
+function resumoAtrasosPorMes(lancamentos) {
+    const meses = new Map();
+    lancamentos.forEach(lancamento => {
+        const chave = String(lancamento.dataISO || '').slice(0, 7);
+        if (!/^\d{4}-\d{2}$/.test(chave)) return;
+        if (!meses.has(chave)) meses.set(chave, 0);
+        meses.set(chave, meses.get(chave) + Number(lancamento.valor || 0));
+    });
+    const nomesMeses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+    return Array.from(meses.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([chave, valor]) => {
+            const [ano, mes] = chave.split('-');
+            return `${nomesMeses[Number(mes) - 1]}/${ano}: ${formatarMoeda(valor)}`;
+        });
+}
+
+function obterInicioHistoricoFinanceiro(base, dataLimite) {
+    const limiteISO = formatarDataISO(dataLimite);
+    const datas = [
+        ...(base?.agendamentos || []).map(item => item.data),
+        ...(base?.planos || []).map(item => item.data_inicio),
+        ...obterContasManuais().map(item => item.data)
+    ]
+        .filter(data => /^\d{4}-\d{2}-\d{2}$/.test(String(data || '')) && data <= limiteISO)
+        .sort();
+
+    return criarDataLocal(datas[0]) || new Date(dataLimite.getFullYear(), 0, 1);
+}
+
 function criarRankingPacientesIndicadores(lancamentos) {
     const ranking = new Map();
     lancamentos.filter(item => item.pacienteId).forEach(item => {
@@ -2975,9 +3097,9 @@ function criarRankingPacientesIndicadores(lancamentos) {
     </li>`).join('')}</ol>`;
 }
 
-function criarAlertasIndicadores({ emAtraso, canceladosComValor, faltasComValor, taxaRecebimento }) {
+function criarAlertasIndicadores({ emAtraso, atrasosPorMes, canceladosComValor, faltasComValor, taxaRecebimento }) {
     const alertas = [];
-    if (emAtraso.quantidade) alertas.push({ tipo: 'critico', titulo: 'Valores em atraso', texto: `${emAtraso.quantidade} lançamento${emAtraso.quantidade === 1 ? '' : 's'} em aberto de períodos já passados: ${formatarMoeda(emAtraso.valor)}.` });
+    if (emAtraso.quantidade) alertas.push({ tipo: 'critico', titulo: 'Valores em atraso', texto: `${emAtraso.quantidade} lançamento${emAtraso.quantidade === 1 ? '' : 's'} em aberto de meses anteriores: ${atrasosPorMes.join(' · ')}. Total: ${formatarMoeda(emAtraso.valor)}.` });
     if (faltasComValor.quantidade) alertas.push({ tipo: 'atencao', titulo: 'Faltas com valor', texto: `${faltasComValor.quantidade} falta${faltasComValor.quantidade === 1 ? '' : 's'} com valor financeiro no período: ${formatarMoeda(faltasComValor.valor)}.` });
     if (canceladosComValor.quantidade) alertas.push({ tipo: 'atencao', titulo: 'Cancelamentos com taxa', texto: `${canceladosComValor.quantidade} cancelamento${canceladosComValor.quantidade === 1 ? '' : 's'} com valor financeiro no período: ${formatarMoeda(canceladosComValor.valor)}.` });
     if (!alertas.length) alertas.push({ tipo: 'positivo', titulo: 'Acompanhamento em dia', texto: `Nenhum valor vencido foi identificado. Taxa de recebimento atual: ${taxaRecebimento}%.` });
@@ -3004,12 +3126,38 @@ async function carregarIndicadoresEstrategicos() {
         const contasPagar = filtrarContasDePacientesAtivos(contasNoPeriodo('pagar', periodo.inicio, periodo.fim, base), base);
         const atendimentosFinanceiros = montarOcorrenciasFinanceiras(base, periodo.inicio, periodo.fim, '', true);
         const lancamentos = atendimentosFinanceiros.concat(transformarContasReceberEmLinhas(contasReceber));
+        const anoReferencia = periodo.fim.getFullYear();
+        const inicioAno = new Date(anoReferencia, 0, 1);
+        const fimAno = new Date(anoReferencia, 11, 31);
+        const contasReceberAno = filtrarContasParaRelatorio(contasNoPeriodo('receber', inicioAno, fimAno, base), base);
+        const contasPagarAno = filtrarContasDePacientesAtivos(contasNoPeriodo('pagar', inicioAno, fimAno, base), base);
+        const atendimentosFinanceirosAno = montarOcorrenciasFinanceiras(base, inicioAno, fimAno, '', true);
+        const lancamentosAno = atendimentosFinanceirosAno.concat(transformarContasReceberEmLinhas(contasReceberAno));
         const historico = montarOcorrenciasHistoricoAgendamentos(base, periodo.inicio, periodo.fim);
         const totais = calcularTotaisFinanceiros(lancamentos);
         const totalPagar = totalizarContas(contasPagar);
         const saldoProjetado = totais.previsto - totalPagar;
-        const hojeISO = formatarDataISO(normalizarData(new Date()));
-        const emAtrasoItens = lancamentos.filter(item => !item.pago && item.dataISO < hojeISO);
+        const hoje = normalizarData(new Date());
+        const primeiroDiaMesAtualISO = formatarDataISO(new Date(hoje.getFullYear(), hoje.getMonth(), 1));
+        // Valores do mês corrente aparecem nos totais do topo. Atraso é apenas
+        // o que segue em aberto após o fechamento do respectivo mês.
+        const ultimoDiaMesAnterior = new Date(hoje.getFullYear(), hoje.getMonth(), 0);
+        const inicioHistoricoFinanceiro = obterInicioHistoricoFinanceiro(base, ultimoDiaMesAnterior);
+        const contasReceberEmAtraso = filtrarContasParaRelatorio(
+            contasNoPeriodo('receber', inicioHistoricoFinanceiro, ultimoDiaMesAnterior, base),
+            base
+        );
+        const atendimentosEmAtraso = montarOcorrenciasFinanceiras(
+            base,
+            inicioHistoricoFinanceiro,
+            ultimoDiaMesAnterior,
+            '',
+            true
+        );
+        const emAtrasoItens = atendimentosEmAtraso
+            .concat(transformarContasReceberEmLinhas(contasReceberEmAtraso))
+            .filter(item => !item.pago && item.dataISO < primeiroDiaMesAtualISO);
+        const atrasosPorMes = resumoAtrasosPorMes(emAtrasoItens);
         const canceladosComValorItens = atendimentosFinanceiros.filter(item => item.status === 'Cancelado');
         const faltasComValorItens = atendimentosFinanceiros.filter(item => item.status === 'Falta');
         const totalEncerrados = historico.filter(item => ['Realizado', 'Falta', 'Cancelado'].includes(item.status)).length;
@@ -3034,7 +3182,7 @@ async function carregarIndicadoresEstrategicos() {
             <div class="kpis-estrategicos">
                 <article class="kpi-estrategico"><span>Receita prevista</span><strong>${formatarMoeda(totais.previsto)}</strong><small>Atendimentos e contas a receber</small></article>
                 <article class="kpi-estrategico kpi-recebido"><span>Recebido</span><strong>${formatarMoeda(totais.recebido)}</strong><small>${taxaRecebimento}% da receita prevista</small></article>
-                <article class="kpi-estrategico kpi-aberto"><span>Em aberto</span><strong>${formatarMoeda(totais.aReceber)}</strong><small>${emAtrasoItens.length} lançamento${emAtrasoItens.length === 1 ? '' : 's'} vencido${emAtrasoItens.length === 1 ? '' : 's'}</small></article>
+                <article class="kpi-estrategico kpi-aberto"><span>Em aberto</span><strong>${formatarMoeda(totais.aReceber)}</strong><small>${emAtrasoItens.length} lançamento${emAtrasoItens.length === 1 ? '' : 's'} de meses anteriores em aberto</small></article>
                 <article class="kpi-estrategico kpi-saldo"><span>Saldo projetado</span><strong>${formatarMoeda(saldoProjetado)}</strong><small>Receita prevista menos despesas</small></article>
                 <article class="kpi-estrategico"><span>Atendimentos</span><strong>${historico.length}</strong><small>${realizados} realizado${realizados === 1 ? '' : 's'} no período</small></article>
                 <article class="kpi-estrategico kpi-efetividade"><span>Efetividade clínica</span><strong>${efetividade}%</strong><small>Realizados entre sessões encerradas</small></article>
@@ -3042,8 +3190,8 @@ async function carregarIndicadoresEstrategicos() {
             </div>
             <div class="grade-analises-estrategicas">
                 <article class="card-analise-estrategica card-analise-amplo">
-                    <div class="card-analise-titulo"><div><h4>Receita e recebimentos</h4><p>Comparativo por faixa do período selecionado.</p></div><div class="legenda-grafico"><span><i class="legenda-previsto"></i>Previsto</span><span><i class="legenda-recebido"></i>Recebido</span></div></div>
-                    ${criarGraficoFinanceiroIndicadores(lancamentos, periodo.inicio, periodo.fim)}
+                    <div class="card-analise-titulo"><div><h4>Faturamento mensal</h4><p>Visão de janeiro a dezembro de ${anoReferencia}: faturado, recebido, em aberto e saldo por mês.</p></div></div>
+                    ${criarFaturamentoMensalIndicadores(lancamentosAno, contasPagarAno, anoReferencia)}
                 </article>
                 <article class="card-analise-estrategica">
                     <div class="card-analise-titulo"><div><h4>Atendimentos por status</h4><p>Distribuição clínica do período.</p></div></div>
@@ -3061,6 +3209,7 @@ async function carregarIndicadoresEstrategicos() {
                     <div class="card-analise-titulo"><div><h4>Pontos de atenção</h4><p>Sinais que merecem acompanhamento.</p></div></div>
                     ${criarAlertasIndicadores({
                         emAtraso: { quantidade: emAtrasoItens.length, valor: valorItens(emAtrasoItens) },
+                        atrasosPorMes,
                         canceladosComValor: { quantidade: canceladosComValorItens.length, valor: valorItens(canceladosComValorItens) },
                         faltasComValor: { quantidade: faltasComValorItens.length, valor: valorItens(faltasComValorItens) },
                         taxaRecebimento
