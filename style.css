@@ -1403,6 +1403,100 @@ body.tela-abertura-ativa {
 
 .grupo-grafico-valores span:last-child { color: #16a34a; font-weight: 700; }
 
+.evolucao-financeira-indicadores {
+    display: grid;
+    gap: 10px;
+}
+
+.faixa-evolucao-financeira {
+    padding: 11px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: rgba(148, 163, 184, 0.06);
+}
+
+.faixa-evolucao-cabecalho {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: baseline;
+    margin-bottom: 9px;
+    color: var(--text-main);
+    font-size: 0.76rem;
+}
+
+.faixa-evolucao-cabecalho > strong { color: var(--text-dark); }
+.faixa-evolucao-cabecalho b { margin-left: 4px; }
+.saldo-positivo { color: #16a34a; }
+.saldo-negativo { color: #dc2626; }
+
+.linhas-evolucao-financeira {
+    display: grid;
+    gap: 6px;
+}
+
+.linhas-evolucao-financeira > div {
+    display: grid;
+    grid-template-columns: 76px minmax(70px, 1fr) 98px;
+    gap: 9px;
+    align-items: center;
+    color: var(--text-main);
+    font-size: 0.72rem;
+}
+
+.linhas-evolucao-financeira i {
+    display: block;
+    height: 7px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.2);
+}
+
+.linhas-evolucao-financeira i b {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+}
+
+.evolucao-recebido { background: #16a34a; }
+.evolucao-aberto { background: #f59e0b; }
+.evolucao-despesas { background: #dc2626; }
+.linhas-evolucao-financeira > div > strong { text-align: right; color: var(--text-dark); font-size: 0.71rem; }
+
+.faturamento-anual-indicadores {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.card-faturamento-mensal {
+    display: grid;
+    gap: 6px;
+    padding: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: rgba(148, 163, 184, 0.06);
+}
+
+.card-faturamento-mensal h5 {
+    margin: 0 0 2px;
+    color: var(--text-dark);
+    font-size: 0.8rem;
+}
+
+.card-faturamento-mensal > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    color: var(--text-main);
+    font-size: 0.69rem;
+}
+
+.card-faturamento-mensal strong { color: var(--text-dark); white-space: nowrap; }
+.card-faturamento-mensal .faturamento-recebido { color: #16a34a; }
+.card-faturamento-mensal .faturamento-aberto { color: #d97706; }
+.card-faturamento-mensal .faturamento-saldo { margin-top: 2px; padding-top: 6px; border-top: 1px solid var(--border-color); font-weight: 700; }
+
 .lista-distribuicao-indicadores {
     display: grid;
     gap: 13px;
@@ -2595,6 +2689,35 @@ body.dark-theme .box-escopo-conta small {
         gap: 2px;
         font-size: 0.66rem;
         text-align: left;
+    }
+
+    .faixa-evolucao-cabecalho {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 3px;
+    }
+
+    .linhas-evolucao-financeira > div {
+        grid-template-columns: 68px minmax(40px, 1fr) 82px;
+        gap: 6px;
+        font-size: 0.67rem;
+    }
+
+    .linhas-evolucao-financeira > div > strong {
+        font-size: 0.66rem;
+    }
+
+    .faturamento-anual-indicadores {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+    }
+
+    .card-faturamento-mensal {
+        padding: 10px;
+    }
+
+    .card-faturamento-mensal > div {
+        font-size: 0.65rem;
     }
 
     .ranking-pacientes-indicadores li {
