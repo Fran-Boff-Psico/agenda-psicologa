@@ -3884,9 +3884,13 @@ async function carregarTelaContas(tipo) {
         const contasReceberDoPeriodo = tipo === 'receber'
             ? filtrarContasParaRelatorio(contasNoPeriodo('receber', periodo.inicio, periodo.fim, baseFinanceira), baseFinanceira)
             : filtrarContasDePacientesAtivos(contasNoPeriodo('receber', periodo.inicio, periodo.fim, baseFinanceira), baseFinanceira);
-        const contasPagarDoPeriodo = tipo === 'receber'
-            ? filtrarContasParaRelatorio(contasNoPeriodo('pagar', periodo.inicio, periodo.fim, baseFinanceira), baseFinanceira)
-            : filtrarContasDePacientesAtivos(contasNoPeriodo('pagar', periodo.inicio, periodo.fim, baseFinanceira), baseFinanceira);
+        // Despesas vinculadas a pacientes inativos não compõem o saldo atual.
+        // A mesma regra é usada em Contas a Receber, Contas a Pagar e Agenda,
+        // evitando cartões com totais divergentes para o mesmo período.
+        const contasPagarDoPeriodo = filtrarContasDePacientesAtivos(
+            contasNoPeriodo('pagar', periodo.inicio, periodo.fim, baseFinanceira),
+            baseFinanceira
+        );
         const contasTipoDoPeriodo = tipo === 'pagar' ? contasPagarDoPeriodo : contasReceberDoPeriodo;
         const ocorrencias = montarOcorrenciasFinanceiras(baseFinanceira, periodo.inicio, periodo.fim, '', tipo === 'receber')
             .concat(transformarContasReceberEmLinhas(contasReceberDoPeriodo));
