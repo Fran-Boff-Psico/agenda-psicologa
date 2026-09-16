@@ -1247,8 +1247,8 @@ body.tela-abertura-ativa {
 
 .kpis-estrategicos {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 10px;
 }
 
 .kpi-estrategico,
@@ -1260,7 +1260,7 @@ body.tela-abertura-ativa {
 
 .kpi-estrategico {
     min-height: 126px;
-    padding: 16px;
+    padding: 13px;
     border-top: 4px solid #64748b;
     display: flex;
     flex-direction: column;
@@ -1278,7 +1278,7 @@ body.tela-abertura-ativa {
 .kpi-estrategico strong {
     margin: 8px 0 4px;
     color: var(--text-dark);
-    font-size: clamp(1.25rem, 2vw, 1.65rem);
+    font-size: clamp(1.1rem, 1.65vw, 1.45rem);
     line-height: 1.1;
 }
 
