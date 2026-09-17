@@ -1108,15 +1108,15 @@ async function carregarAgendaSemanal() {
         const { data: agendamentos } = await bancoDados.from('agendamentos').select('*');
 
         const hoje = new Date();
-        const hojeISO = formatarDataISO(normalizarData(hoje));
         const mapaPacientes = {};
-        // Mantém a identificação dos pacientes arquivados para que uma consulta
-        // de semanas passadas continue exibindo o histórico salvo.
+        // A Agenda é operacional: paciente arquivado não ocupa nem aparece em
+        // nenhuma célula. O histórico permanece disponível exclusivamente no
+        // perfil do paciente e em Histórico de Agendamentos.
         if (pacientes) pacientes.forEach(paciente => mapaPacientes[paciente.id] = paciente);
-        const pacienteVisivelNaAgenda = (pacienteId, dataISO) => {
+        const pacienteVisivelNaAgenda = pacienteId => {
             const paciente = mapaPacientes[pacienteId];
             if (!paciente) return false;
-            return !statusPacienteEhInativo(paciente) || dataISO < hojeISO;
+            return !statusPacienteEhInativo(paciente);
         };
 
         const periodoFiltro = obterPeriodoFiltroAgenda();
