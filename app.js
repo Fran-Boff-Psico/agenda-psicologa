@@ -345,7 +345,7 @@ function contasNoPeriodo(tipo, inicio, fim, baseFinanceira = null) {
     if (baseFinanceira?.pacientes && baseFinanceira?.planos && baseFinanceira?.agendamentos) {
         const pacientesAtivos = new Set(
             baseFinanceira.pacientes
-                .filter(paciente => paciente.status !== 'Inativo')
+                .filter(paciente => !statusPacienteEhInativo(paciente))
                 .map(paciente => String(paciente.id))
         );
         const sessoesDoPeriodo = montarOcorrenciasFinanceiras(baseFinanceira, inicio, fim);
@@ -410,6 +410,15 @@ function normalizarNomePacienteFinanceiro(nome) {
         .toLocaleLowerCase('pt-BR');
 }
 
+// Registros antigos podem trazer o vínculo como "Inativo (Arquivado)", com
+// espaços ou diferença de maiúsculas. Todos devem ser tratados como inativos.
+function statusPacienteEhInativo(pacienteOuStatus) {
+    const status = typeof pacienteOuStatus === 'object'
+        ? pacienteOuStatus?.status
+        : pacienteOuStatus;
+    return String(status || '').trim().toLocaleLowerCase('pt-BR').startsWith('inativo');
+}
+
 function obterPacienteIdDaOrigemFinanceira(conta) {
     const origem = String(conta?.origem || '');
     return origem.match(/^ocorrencia_(\d+)_\d{4}-\d{2}-\d{2}$/)?.[1] || '';
@@ -422,12 +431,12 @@ function filtrarContasDePacientesAtivos(contas, baseFinanceira) {
     if (!baseFinanceira?.pacientes) return contas;
     const pacientesAtivos = new Set(
         baseFinanceira.pacientes
-            .filter(paciente => paciente.status !== 'Inativo')
+            .filter(paciente => !statusPacienteEhInativo(paciente))
             .map(paciente => String(paciente.id))
     );
     const nomesPacientesAtivos = new Set(
         baseFinanceira.pacientes
-            .filter(paciente => paciente.status !== 'Inativo')
+            .filter(paciente => !statusPacienteEhInativo(paciente))
             .map(paciente => normalizarNomePacienteFinanceiro(paciente.nome))
             .filter(Boolean)
     );
@@ -453,7 +462,7 @@ function filtrarContasParaRelatorio(contas, baseFinanceira) {
         if (!pacienteId) return true;
         const paciente = pacientesPorId.get(pacienteId);
         if (!paciente) return false;
-        return paciente.status !== 'Inativo' || String(conta.data || '') < hojeISO;
+        return !statusPacienteEhInativo(paciente) || String(conta.data || '') < hojeISO;
     });
 }
 
@@ -696,7 +705,7 @@ async function preencherFiltroPacientesLogs() {
     const { data, error } = await bancoDados.from('pacientes').select('id, nome, status').order('nome');
     if (error) throw error;
     select.innerHTML = '<option value="">Todos os pacientes</option>' + (data || []).map(paciente => {
-        const sufixo = paciente.status === 'Inativo' ? ' (Inativo)' : '';
+        const sufixo = statusPacienteEhInativo(paciente) ? ' (Inativo)' : '';
         return `<option value="${paciente.id}">${escaparHTML((paciente.nome || 'Paciente sem nome') + sufixo)}</option>`;
     }).join('');
     select.value = valorSelecionado;
@@ -1107,7 +1116,7 @@ async function carregarAgendaSemanal() {
         const pacienteVisivelNaAgenda = (pacienteId, dataISO) => {
             const paciente = mapaPacientes[pacienteId];
             if (!paciente) return false;
-            return paciente.status !== 'Inativo' || dataISO < hojeISO;
+            return !statusPacienteEhInativo(paciente) || dataISO < hojeISO;
         };
 
         const periodoFiltro = obterPeriodoFiltroAgenda();
@@ -1554,7 +1563,7 @@ window.abrirAgendamentoExtraPaciente = function() {
         alert('Abra primeiro o perfil de um paciente para inserir um agendamento extra.');
         return;
     }
-    if (document.getElementById('statusVinculo')?.value === 'Inativo') {
+    if (statusPacienteEhInativo(document.getElementById('statusVinculo')?.value)) {
         alert('Não é possível criar um novo agendamento para paciente inativo.');
         return;
     }
@@ -2418,7 +2427,7 @@ async function renderizarSidebarCalendarioPaciente(pacienteId, manterPeriodoAtua
     sidebar.style.display = 'block';
     const botaoAgendamentoExtra = document.getElementById('btnAgendamentoExtraPaciente');
     if (botaoAgendamentoExtra) {
-        const pacienteEstaInativo = document.getElementById('statusVinculo')?.value === 'Inativo';
+        const pacienteEstaInativo = statusPacienteEhInativo(document.getElementById('statusVinculo')?.value);
         botaoAgendamentoExtra.style.display = pacienteId && pacienteId !== 'null' ? 'block' : 'none';
         botaoAgendamentoExtra.disabled = pacienteEstaInativo;
         botaoAgendamentoExtra.title = pacienteEstaInativo ? 'Pacientes inativos não recebem novos agendamentos.' : '';
@@ -2478,7 +2487,7 @@ async function renderizarSidebarCalendarioPaciente(pacienteId, manterPeriodoAtua
             return;
         }
 
-        const pacienteInativo = document.getElementById('statusVinculo')?.value === 'Inativo';
+        const pacienteInativo = statusPacienteEhInativo(document.getElementById('statusVinculo')?.value);
         const hoje = normalizarData(new Date());
         const totalDias = Math.round((periodo.dataFim.getTime() - periodo.dataInicio.getTime()) / (1000 * 60 * 60 * 24));
 
@@ -2700,7 +2709,7 @@ function montarOcorrenciasFinanceiras(base, dataInicio, dataFim, pacienteFiltro 
     const pacienteDisponivelNaData = (pacienteId, dataISO) => {
         const paciente = mapaPacientes[pacienteId];
         if (!paciente) return false;
-        return paciente.status !== 'Inativo' || (incluirHistoricoDeInativos && dataISO < hojeISO);
+        return !statusPacienteEhInativo(paciente) || (incluirHistoricoDeInativos && dataISO < hojeISO);
     };
 
     const ocorrencias = [];
@@ -3176,7 +3185,7 @@ async function carregarIndicadoresEstrategicos() {
             valor: historico.filter(item => item.modalidade === modalidade).length,
             classe: indice === 0 ? 'indicador-modalidade-presencial' : 'indicador-modalidade-online'
         }));
-        const pacientesAtivos = (base.pacientes || []).filter(paciente => paciente.status !== 'Inativo').length;
+        const pacientesAtivos = (base.pacientes || []).filter(paciente => !statusPacienteEhInativo(paciente)).length;
 
         conteudo.innerHTML = `
             <div class="kpis-estrategicos">
@@ -3248,7 +3257,7 @@ async function carregarTelaRelatorios() {
         const selecionado = selectPaciente.value;
         let htmlOptions = '<option value="">Todos os pacientes</option><option value="reg_manual">Reg. Manual</option>';
         (pacientes || []).forEach(p => {
-            const sufixo = p.status === 'Inativo' ? ' (Inativo)' : '';
+            const sufixo = statusPacienteEhInativo(p) ? ' (Inativo)' : '';
             htmlOptions += `<option value="${p.id}">${escaparHTML((p.nome || 'Paciente sem nome') + sufixo)}</option>`;
         });
         selectPaciente.innerHTML = htmlOptions;
@@ -3372,7 +3381,7 @@ async function atualizarDashboard() {
     try {
         const { data } = await bancoDados.from('pacientes').select('status');
         let ativos = 0;
-        if (data) data.forEach(p => p.status === 'Inativo' ? null : ativos++);
+        if (data) data.forEach(p => statusPacienteEhInativo(p) ? null : ativos++);
         document.querySelectorAll('[data-total-ativos]').forEach(campo => {
             campo.innerText = ativos;
         });
@@ -3401,7 +3410,7 @@ function montarOcorrenciasHistoricoAgendamentos(base, dataInicio, dataFim, pacie
             const paciente = mapaPacientes[String(agendamento.paciente_id)] || {};
             // O histórico preserva as datas passadas de pacientes inativos,
             // mas não deve sugerir que ainda possuem sessões futuras.
-            if (paciente.status === 'Inativo' && dataISO >= hojeISO) return;
+            if (statusPacienteEhInativo(paciente) && dataISO >= hojeISO) return;
             // A palavra "Extra" só pode ser usada para uma sessão inserida pelo
             // botão próprio. Datas editadas/reagendadas mantêm a frequência do
             // plano clínico, inclusive nos registros mais antigos.
@@ -3426,7 +3435,7 @@ function montarOcorrenciasHistoricoAgendamentos(base, dataInicio, dataFim, pacie
             const possuiAgendamentoEspecifico = especificosDia.some(item => String(item.paciente_id) === String(plano.paciente_id));
             if (possuiAgendamentoEspecifico || !checarDataCorrespondeAoPlano(dataFoco, plano.data_inicio, plano.dia_semana, plano.frequencia)) return;
             const paciente = mapaPacientes[String(plano.paciente_id)] || {};
-            if (paciente.status === 'Inativo' && dataISO >= hojeISO) return;
+            if (statusPacienteEhInativo(paciente) && dataISO >= hojeISO) return;
             ocorrencias.push({
                 pacienteId: plano.paciente_id,
                 pacienteNome: paciente.nome || 'Paciente sem nome',
@@ -3455,7 +3464,7 @@ async function carregarTelaHistoricoAgendamentos() {
         const { data, error } = await bancoDados.from('pacientes').select('id, nome, status').order('nome');
         if (error) throw error;
         pacienteInput.innerHTML = '<option value="">Todos os pacientes</option>' + (data || []).map(paciente => {
-            const sufixo = paciente.status === 'Inativo' ? ' (Inativo)' : '';
+            const sufixo = statusPacienteEhInativo(paciente) ? ' (Inativo)' : '';
             return `<option value="${paciente.id}">${escaparHTML((paciente.nome || 'Paciente sem nome') + sufixo)}</option>`;
         }).join('');
         pacienteInput.value = selecionado;
@@ -3786,7 +3795,7 @@ function preencherFiltroPacienteContasReceber(pacientes = []) {
     const pacientesOrdenados = pacientes
         .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
     seletor.innerHTML = `<option value="">Todos os pacientes</option>${pacientesOrdenados
-        .map(paciente => `<option value="${escaparHTML(paciente.id)}">${escaparHTML((paciente.nome || 'Paciente sem nome') + (paciente.status === 'Inativo' ? ' (Inativo)' : ''))}</option>`)
+        .map(paciente => `<option value="${escaparHTML(paciente.id)}">${escaparHTML((paciente.nome || 'Paciente sem nome') + (statusPacienteEhInativo(paciente) ? ' (Inativo)' : ''))}</option>`)
         .join('')}`;
     if (pacientesOrdenados.some(paciente => String(paciente.id) === String(selecionado))) {
         seletor.value = selecionado;
@@ -4580,7 +4589,7 @@ function renderizarListaPacientes() {
     }
 
     lista.innerHTML = pacientesFiltrados.map(paciente => `
-        <div class="cardPaciente" style="${paciente.status === 'Inativo' ? 'opacity:0.65;' : ''}">
+        <div class="cardPaciente" style="${statusPacienteEhInativo(paciente) ? 'opacity:0.65;' : ''}">
             <strong>${escaparHTML(paciente.nome || '')}</strong><br>
             <small>WhatsApp: ${escaparHTML(paciente.telefone || 'Não informado')}</small><br>
             <span class="paciente-modalidade"><span>Modalidade:</span> <strong>${escaparHTML(paciente.modalidade || 'Não definida')}</strong></span>
@@ -4706,7 +4715,7 @@ async function salvarPaciente() {
         modalidade: document.getElementById('modalidade')?.value || 'Presencial',
         valor: Number(document.getElementById('valor')?.value || 0),
         forma_cobranca: document.getElementById('formaCobranca')?.value || 'Mensal',
-        ativo: payloadPaciente.status !== 'Inativo'
+        ativo: !statusPacienteEhInativo(payloadPaciente)
         };
 
         const { data: planoExistente } = await bancoDados.from('planos_atendimento').select('id').eq('paciente_id', pacienteId);
@@ -4722,7 +4731,7 @@ async function salvarPaciente() {
             entidadeId: pacienteId,
             pacienteId,
             pacienteNome: payloadPaciente.nome,
-            detalhes: payloadPaciente.status === 'Inativo'
+            detalhes: statusPacienteEhInativo(payloadPaciente)
                 ? 'Paciente marcado como inativo; as projeções futuras foram ocultadas sem alterar o histórico de status.'
                 : (pacienteAnterior ? 'Dados do perfil e do plano clínico atualizados.' : 'Novo paciente e plano clínico cadastrados.'),
             dadosAntes: pacienteAnterior ? { status: pacienteAnterior.status } : null,
