@@ -3691,7 +3691,7 @@ async function salvarContaManual(tipo) {
             }
             // O corte vale na data da ocorrência selecionada, não na data de vencimento nova.
             // Se o dia do mês mudar, uma regra terminadora desativa o ciclo anterior.
-            if (data !== dataISO) contas.push({ ...anterior, id: contaNova.id + '_corte', data: dataISO,
+            if (data !== dataISO || !repetirMensalmente) contas.push({ ...anterior, id: contaNova.id + '_corte', data: dataISO,
                 recorrente: true, ativo: false, origem: grupo });
             contaNova.data = data;
             contas.push(contaNova);
