@@ -53,6 +53,8 @@
         <button type="button" onclick="alternarSubmenuDocumentos()">Documentos</button>
         <div id="submenuDocumentos" class="submenu-documentos">
             <button type="button" onclick="abrirTermoCompromisso()">Termo de compromisso</button>
+            <button type="button" onclick="abrirGeradorDocumentoClinico('atestado')">Atestado Psicológico</button>
+            <button type="button" onclick="abrirGeradorDocumentoClinico('encaminhamento')">Encaminhamento Psiquiátrico</button>
         </div>
         <button onclick="mostrarTela('configuracoes')">Configurações</button>
     </div>
@@ -438,10 +440,37 @@
         </div>
 
         <div id="documentos" class="tela">
-            <div class="documentos-container">
+            <div class="documentos-container" id="docTermoContainer">
                 <div class="documentos-cabecalho"><h3>Termo de compromisso</h3></div>
                 <iframe id="frameTermoCompromisso" class="frame-documento" title="Termo de compromisso" loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe>
             </div>
+                
+    <section id="geradorDocumentosClinicos" class="documentos-container" style="display:none;max-width:920px">    
+      <div class="documentos-cabecalho"><h3 id="tituloGeradorClinico">Novo documento</h3></div>    
+      <div class="form-container" style="display:block">    
+        <div class="form-row">    
+          <div class="form-group" style="min-width:240px;flex:2"><label for="docPacienteNome">Nome completo do paciente</label><input id="docPacienteNome" list="docPacientesSugestoes" autocomplete="off" placeholder="Digite ou escolha um paciente" required><datalist id="docPacientesSugestoes"></datalist></div>    
+          <div class="form-group" style="min-width:180px"><label for="docData">Data do documento</label><input type="date" id="docData" required></div>    
+        </div>    
+        <div id="docCamposAtestado">    
+          <div class="form-row">    
+            <div class="form-group"><label for="docDataAtendimento">Data do atendimento</label><input type="date" id="docDataAtendimento"></div>    
+            <div class="form-group"><label for="docHoraInicio">Ausência a partir de</label><input id="docHoraInicio" type="time"></div>    
+            <div class="form-group"><label for="docHoraFim">Ausência até</label><input id="docHoraFim" type="time"></div>    
+          </div>    
+        </div>    
+        <div id="docCamposEncaminhamento" style="display:none">    
+          <div class="form-group"><label for="docRelatoClinico">Relato clínico e justificativa para avaliação psiquiátrica</label><textarea id="docRelatoClinico" rows="10" style="width:100%;max-width:100%" placeholder="Descreva as observações clínicas e os relatos pertinentes. Use parágrafos para organizar o texto."></textarea></div>    
+        </div>    
+        <div class="acoes-formulario-conta" style="margin-top:18px">    
+          <button type="button" class="btn-principal" id="docBtnGerar" onclick="gerarDocumentoClinico(false)">Salvar PDF</button>    
+          <button type="button" class="btn-secundario" onclick="gerarDocumentoClinico(true)">Compartilhar PDF</button>    
+          <button type="button" class="btn-secundario" onclick="visualizarDocumentoClinico()">Visualizar</button>    
+        </div>    
+        <p id="docAviso" role="status" style="font-size:12px;margin-top:10px"></p>    
+      </div>    
+      <div id="docVisualizacao" style="display:none;margin-top:20px;overflow:auto;background:#e5e7eb;padding:15px"></div>    
+    </section>
         </div>
 
         <div id="consultaLogs" class="tela">
@@ -673,6 +702,8 @@
     </div>
 
     <script src="app.js?v=20261019-edicao-contas"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.2/dist/html2pdf.bundle.min.js" defer></script>
+    <script src="documentos-geradores.js?v=20261019" defer></script>
 </body>
 </html>
 
