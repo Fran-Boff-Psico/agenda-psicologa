@@ -21,6 +21,7 @@ let pacientesListagemCache = [];
 let uploadLogoBase64 = "";
 let uploadImagemAberturaBase64 = "";
 const CHAVE_CONTAS_MANUAIS = 'agenda_contas_manuais_v1';
+let contaPagarEmEdicao = null;
 const CHAVE_MIGRACAO_FINANCEIRA = 'agenda_financeiro_migrado_supabase_v1';
 const CHAVE_PRONTUARIOS_SESSAO = 'agenda_prontuarios_sessao_v1';
 const GOOGLE_DRIVE_CLIENT_ID = '849028585438-5ormphqm573bo36bijq1er8inoaurvkf.apps.googleusercontent.com';
@@ -343,6 +344,17 @@ function dataCorrespondeRecorrenciaMensal(data, inicioISO) {
     return data.getDate() === Math.min(inicial.getDate(), ultimoDiaMes);
 }
 
+function grupoRecorrenciaManual(conta) {
+    return conta?.origem && String(conta.origem).startsWith('recorrencia_manual_')
+        ? String(conta.origem) : (conta?.recorrente && conta?.frequencia === 'MensalCalendario' ? 'recorrencia_manual_' + conta.id : '');
+}
+function proximaRegraFinanceira(regra, regras) {
+    const grupo = grupoRecorrenciaManual(regra);
+    return regras.filter(item => item.id !== regra.id && item.data > regra.data &&
+        (grupo ? grupoRecorrenciaManual(item) === grupo : (regra.pacienteId && String(item.pacienteId) === String(regra.pacienteId))))
+        .sort((a, b) => a.data.localeCompare(b.data))[0];
+}
+
 function contasNoPeriodo(tipo, inicio, fim, baseFinanceira = null) {
     const inicioISO = formatarDataISO(inicio);
     const fimISO = formatarDataISO(fim);
@@ -370,9 +382,7 @@ function contasNoPeriodo(tipo, inicio, fim, baseFinanceira = null) {
             if (!pacienteId || !baseFinanceira.pacientes.some(p => String(p.id) === pacienteId)) return;
 
             // Uma regra posterior do mesmo paciente passa a valer no lugar da anterior.
-            const proximaRegra = regras
-                .filter(item => String(item.pacienteId) === pacienteId && item.data > regra.data)
-                .sort((a, b) => a.data.localeCompare(b.data))[0];
+            const proximaRegra = proximaRegraFinanceira(regra, regras);
             const limiteISO = proximaRegra
                 ? formatarDataISO(adicionarDias(criarDataLocal(proximaRegra.data), -1))
                 : fimISO;
@@ -396,9 +406,7 @@ function contasNoPeriodo(tipo, inicio, fim, baseFinanceira = null) {
 
     regras.forEach(regra => {
         if (regrasProcessadasPelaAgenda.has(regra.id)) return;
-        const proximaRegra = regras
-            .filter(item => regra.pacienteId && item.pacienteId === regra.pacienteId && item.data > regra.data)
-            .sort((a, b) => a.data.localeCompare(b.data))[0];
+        const proximaRegra = proximaRegraFinanceira(regra, regras);
         const limiteISO = proximaRegra ? formatarDataISO(adicionarDias(criarDataLocal(proximaRegra.data), -1)) : fimISO;
         if (!regra.ativo || limiteISO < inicioISO) return;
         const inicioRegra = criarDataLocal(regra.data);
@@ -3616,6 +3624,7 @@ function alternarFormularioConta(tipo) {
 window.alternarFormularioConta = alternarFormularioConta;
 
 function cancelarFormularioConta(tipo) {
+    if (tipo === 'pagar') { contaPagarEmEdicao = null; const titulo = document.querySelector('#formContaPagar h3'); if (titulo) titulo.textContent = 'Nova conta a pagar'; }
     const sufixo = tipo === 'pagar' ? 'Pagar' : 'Receber';
     const formulario = document.getElementById(`formConta${sufixo}`);
     if (formulario) formulario.style.display = 'none';
@@ -3665,14 +3674,39 @@ async function salvarContaManual(tipo) {
     const repetirMensalmente = tipo === 'pagar' && document.getElementById('contaPagarRecorrencia')?.value === 'proximos';
     const contaNova = { id: `${Date.now()}_${Math.random().toString(16).slice(2)}`, tipo, data, valor, categoria, descricao: descricao.trim(), pago: repetirMensalmente ? false : pago,
         recorrente: repetirMensalmente, frequencia: repetirMensalmente ? 'MensalCalendario' : '' };
-    contas.push(contaNova);
+    if (repetirMensalmente) contaNova.origem = 'recorrencia_manual_' + contaNova.id;
+    if (tipo === 'pagar' && contaPagarEmEdicao) {
+        const { id, dataISO } = contaPagarEmEdicao;
+        const anterior = contas.find(c => String(c.id) === String(id));
+        if (!anterior) { alert('Conta original não encontrada. Atualize a página.'); return; }
+        if (anterior.recorrente) {
+            // Uma nova regra substitui a anterior apenas a partir da ocorrência escolhida.
+            const grupo = grupoRecorrenciaManual(anterior);
+            anterior.origem = grupo;
+            contaNova.origem = grupo;
+            contaNova.data = data;
+            if (data !== dataISO) {
+                // A data editada não pode retroagir ao histórico anterior.
+                if (data < dataISO) { alert('Escolha uma data igual ou posterior à ocorrência selecionada.'); return; }
+            }
+            // O corte vale na data da ocorrência selecionada, não na data de vencimento nova.
+            // Se o dia do mês mudar, uma regra terminadora desativa o ciclo anterior.
+            if (data !== dataISO) contas.push({ ...anterior, id: contaNova.id + '_corte', data: dataISO,
+                recorrente: true, ativo: false, origem: grupo });
+            contaNova.data = data;
+            contas.push(contaNova);
+        } else {
+            Object.assign(anterior, { data, valor, categoria, descricao: descricao.trim(), pago, recorrente: repetirMensalmente,
+                frequencia: repetirMensalmente ? 'MensalCalendario' : '', origem: repetirMensalmente ? 'recorrencia_manual_' + anterior.id : anterior.origem });
+        }
+    } else contas.push(contaNova);
     try {
         await salvarContasManuais(contas);
     } catch (erro) {
         alert('A conta foi mantida neste dispositivo, mas não foi possível enviá-la para a nuvem. Tente novamente.');
         return;
     }
-    if (repetirMensalmente && pago) await salvarPagamentoContaNoBanco(contaNova.id, data, true);
+    if (repetirMensalmente && pago && !contaPagarEmEdicao) await salvarPagamentoContaNoBanco(contaNova.id, data, true);
     await registrarLogSistema({
         acao: `Conta a ${tipo === 'pagar' ? 'pagar' : 'receber'} criada`, entidade: 'conta_financeira', entidadeId: contaNova.id,
         detalhes: `${contaNova.descricao} — ${formatarDataBR(criarDataLocal(data))} — ${formatarMoeda(valor)}.`,
@@ -3688,6 +3722,46 @@ async function salvarContaManual(tipo) {
     atualizarIndicadoresFinanceirosDashboard();
 }
 window.salvarContaManual = salvarContaManual;
+
+function iniciarEdicaoContaPagar(id, dataISO) {
+    const conta = obterContasManuais().find(item => String(item.id) === String(id) && item.tipo === 'pagar');
+    if (!conta) return alert('Conta não encontrada.');
+    contaPagarEmEdicao = { id: String(id), dataISO };
+    const form = document.getElementById('formContaPagar');
+    form.style.display = 'block';
+    form.querySelector('h3').textContent = 'Editar conta a pagar';
+    document.getElementById('contaPagarData').value = dataISO;
+    document.getElementById('contaPagarValor').value = conta.valor;
+    document.getElementById('contaPagarCategoria').value = conta.categoria === 'Sublocacao' ? 'Sublocacao' : 'Outro';
+    document.getElementById('contaPagarDescricao').value = conta.descricao || '';
+    document.getElementById('contaPagarPago').checked = conta.recorrente ? obterPagamentoConta(id, dataISO) : Boolean(conta.pago);
+    document.getElementById('contaPagarRecorrencia').value = conta.recorrente ? 'proximos' : 'mes';
+    alternarDescricaoContaPagar();
+    form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+window.iniciarEdicaoContaPagar = iniciarEdicaoContaPagar;
+
+async function excluirContaPagarNaData(id, dataISO) {
+    const contas = obterContasManuais();
+    const atual = contas.find(c => String(c.id) === String(id) && c.tipo === 'pagar');
+    if (!atual || !confirm(atual.recorrente
+        ? 'Excluir esta ocorrência e todas as próximas? O histórico anterior será mantido.'
+        : 'Excluir esta conta a pagar?')) return;
+    if (!atual.recorrente) return excluirContaManual(id, 'pagar');
+    const grupo = grupoRecorrenciaManual(atual);
+    atual.origem = grupo;
+    const encerramento = { ...atual, id: String(Date.now()) + '_fim_' + Math.random().toString(16).slice(2),
+        data: dataISO, origem: grupo, recorrente: true, ativo: false };
+    contas.push(encerramento);
+    try { await salvarContasManuais(contas); }
+    catch (e) { alert('Não foi possível excluir as próximas ocorrências.'); return; }
+    await registrarLogSistema({ acao: 'Recorrência de conta a pagar encerrada',
+        entidade: 'conta_financeira', entidadeId: id,
+        detalhes: 'Encerrada a partir de ' + dataISO + '; histórico anterior preservado.' });
+    carregarTelaContas('pagar');
+    atualizarIndicadoresFinanceirosDashboard();
+}
+window.excluirContaPagarNaData = excluirContaPagarNaData;
 
 async function excluirContaManual(id, tipo) {
     const contasAnteriores = obterContasManuais();
@@ -3955,7 +4029,10 @@ async function carregarTelaContas(tipo) {
         const controlePagamento = tipo === 'receber'
             ? montarControlePagamentoFinanceiro(linha, tipo, contaManual)
             : '';
-        const acao = contaManual && !linha.recorrente ? `<button class="btn-perigo btn-conta-excluir" onclick="excluirContaManual('${linha.contaId}', '${tipo}')">Excluir</button>` : '';
+        const acao = tipo === 'pagar' && contaManual
+            ? `<button type="button" title="Editar conta" aria-label="Editar conta" onclick="iniciarEdicaoContaPagar('${linha.contaId}', '${linha.dataISO}')">✏️</button>
+               <button type="button" title="Excluir conta" aria-label="Excluir conta" onclick="excluirContaPagarNaData('${linha.contaId}', '${linha.dataISO}')">🗑️</button>`
+            : (contaManual && !linha.recorrente ? `<button class="btn-perigo btn-conta-excluir" onclick="excluirContaManual('${linha.contaId}', '${tipo}')">Excluir</button>` : '');
         const editar = montarBotaoEditarOcorrenciaFinanceira(linha, tipo);
         return { linha, statusAtendimento, pagamento, controlePagamento, acao, editar };
     });
