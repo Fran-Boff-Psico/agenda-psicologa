@@ -336,6 +336,13 @@ function sublocacaoDescontinuada(conta, dataOcorrencia = conta?.data) {
     return categoria === 'sublocacao' || descricao === 'sublocacao';
 }
 
+function dataCorrespondeRecorrenciaMensal(data, inicioISO) {
+    const inicial = criarDataLocal(inicioISO);
+    if (!inicial || data < inicial) return false;
+    const ultimoDiaMes = new Date(data.getFullYear(), data.getMonth() + 1, 0).getDate();
+    return data.getDate() === Math.min(inicial.getDate(), ultimoDiaMes);
+}
+
 function contasNoPeriodo(tipo, inicio, fim, baseFinanceira = null) {
     const inicioISO = formatarDataISO(inicio);
     const fimISO = formatarDataISO(fim);
@@ -390,7 +397,7 @@ function contasNoPeriodo(tipo, inicio, fim, baseFinanceira = null) {
     regras.forEach(regra => {
         if (regrasProcessadasPelaAgenda.has(regra.id)) return;
         const proximaRegra = regras
-            .filter(item => item.pacienteId === regra.pacienteId && item.data > regra.data)
+            .filter(item => regra.pacienteId && item.pacienteId === regra.pacienteId && item.data > regra.data)
             .sort((a, b) => a.data.localeCompare(b.data))[0];
         const limiteISO = proximaRegra ? formatarDataISO(adicionarDias(criarDataLocal(proximaRegra.data), -1)) : fimISO;
         if (!regra.ativo || limiteISO < inicioISO) return;
@@ -402,7 +409,9 @@ function contasNoPeriodo(tipo, inicio, fim, baseFinanceira = null) {
         for (let i = 0; i <= totalDias; i++) {
             const dataFoco = adicionarDias(primeiroDia, i);
             const dataISO = formatarDataISO(dataFoco);
-            if (!checarDataCorrespondeAoPlano(dataFoco, regra.data, regra.diaSemana, regra.frequencia)) continue;
+            if (regra.frequencia === 'MensalCalendario'
+                ? !dataCorrespondeRecorrenciaMensal(dataFoco, regra.data)
+                : !checarDataCorrespondeAoPlano(dataFoco, regra.data, regra.diaSemana, regra.frequencia)) continue;
             if (possuiContaPontualNaData(regra, dataISO)) continue;
             contasRecorrentes.push(criarOcorrenciaDeContaRecorrente(regra, dataISO));
         }
@@ -3619,6 +3628,8 @@ function cancelarFormularioConta(tipo) {
     if (campoDescricao) campoDescricao.value = '';
     if (campoPago) campoPago.checked = false;
     if (tipo === 'pagar') {
+        const recorrencia = document.getElementById('contaPagarRecorrencia');
+        if (recorrencia) recorrencia.value = 'mes';
         const categoria = document.getElementById('contaPagarCategoria');
         if (categoria) categoria.value = 'Sublocacao';
         alternarDescricaoContaPagar();
@@ -3651,7 +3662,9 @@ async function salvarContaManual(tipo) {
     }
     const contas = obterContasManuais();
     const pago = Boolean(document.getElementById(tipo === 'pagar' ? 'contaPagarPago' : 'contaReceberPago')?.checked);
-    const contaNova = { id: `${Date.now()}_${Math.random().toString(16).slice(2)}`, tipo, data, valor, categoria, descricao: descricao.trim(), pago };
+    const repetirMensalmente = tipo === 'pagar' && document.getElementById('contaPagarRecorrencia')?.value === 'proximos';
+    const contaNova = { id: `${Date.now()}_${Math.random().toString(16).slice(2)}`, tipo, data, valor, categoria, descricao: descricao.trim(), pago: repetirMensalmente ? false : pago,
+        recorrente: repetirMensalmente, frequencia: repetirMensalmente ? 'MensalCalendario' : '' };
     contas.push(contaNova);
     try {
         await salvarContasManuais(contas);
@@ -3659,6 +3672,7 @@ async function salvarContaManual(tipo) {
         alert('A conta foi mantida neste dispositivo, mas não foi possível enviá-la para a nuvem. Tente novamente.');
         return;
     }
+    if (repetirMensalmente && pago) await salvarPagamentoContaNoBanco(contaNova.id, data, true);
     await registrarLogSistema({
         acao: `Conta a ${tipo === 'pagar' ? 'pagar' : 'receber'} criada`, entidade: 'conta_financeira', entidadeId: contaNova.id,
         detalhes: `${contaNova.descricao} — ${formatarDataBR(criarDataLocal(data))} — ${formatarMoeda(valor)}.`,
