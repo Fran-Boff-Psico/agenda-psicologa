@@ -348,11 +348,11 @@ function contasNoPeriodo(tipo, inicio, fim, baseFinanceira = null) {
                 .filter(paciente => !statusPacienteEhInativo(paciente))
                 .map(paciente => String(paciente.id))
         );
-        const sessoesDoPeriodo = montarOcorrenciasFinanceiras(baseFinanceira, inicio, fim);
+        const sessoesDoPeriodo = montarOcorrenciasFinanceiras(baseFinanceira, inicio, fim, '', true);
 
         regras.forEach(regra => {
             const pacienteId = regra.pacienteId == null ? '' : String(regra.pacienteId);
-            if (!pacienteId || !pacientesAtivos.has(pacienteId)) return;
+            if (!pacienteId || !baseFinanceira.pacientes.some(p => String(p.id) === pacienteId)) return;
 
             // Uma regra posterior do mesmo paciente passa a valer no lugar da anterior.
             const proximaRegra = regras
@@ -424,29 +424,19 @@ function obterPacienteIdDaOrigemFinanceira(conta) {
     return origem.match(/^ocorrencia_(\d+)_\d{4}-\d{2}-\d{2}$/)?.[1] || '';
 }
 
-// Contas manuais sem paciente continuam sendo registros independentes. Já as contas
-// vinculadas a uma pessoa só entram no financeiro enquanto esse paciente existir e estiver ativo.
-// A consulta por nome cobre lançamentos antigos que foram salvos antes do paciente_id existir.
+// Preserva cobranças anteriores de inativos, sem gerar cobranças futuras.
 function filtrarContasDePacientesAtivos(contas, baseFinanceira) {
     if (!baseFinanceira?.pacientes) return contas;
-    const pacientesAtivos = new Set(
-        baseFinanceira.pacientes
-            .filter(paciente => !statusPacienteEhInativo(paciente))
-            .map(paciente => String(paciente.id))
-    );
-    const nomesPacientesAtivos = new Set(
-        baseFinanceira.pacientes
-            .filter(paciente => !statusPacienteEhInativo(paciente))
-            .map(paciente => normalizarNomePacienteFinanceiro(paciente.nome))
-            .filter(Boolean)
-    );
+    const porId = new Map(baseFinanceira.pacientes.map(p => [String(p.id), p]));
+    const porNome = new Map(baseFinanceira.pacientes.filter(p => p.nome)
+        .map(p => [normalizarNomePacienteFinanceiro(p.nome), p]));
+    const hojeISO = formatarDataISO(normalizarData(new Date()));
     return contas.filter(conta => {
-        const pacienteIdInformado = conta?.pacienteId == null || conta.pacienteId === '' ? '' : String(conta.pacienteId);
-        const pacienteId = pacienteIdInformado || obterPacienteIdDaOrigemFinanceira(conta);
-        if (pacienteId) return pacientesAtivos.has(pacienteId);
-
-        const nomePaciente = normalizarNomePacienteFinanceiro(conta?.pacienteNome);
-        return !nomePaciente || nomesPacientesAtivos.has(nomePaciente);
+        const id = String(conta?.pacienteId || obterPacienteIdDaOrigemFinanceira(conta) || '');
+        const nome = normalizarNomePacienteFinanceiro(conta?.pacienteNome);
+        const paciente = id ? porId.get(id) : (nome ? porNome.get(nome) : null);
+        if (!paciente) return !id && !nome;
+        return !statusPacienteEhInativo(paciente) || String(conta.data || '') < hojeISO;
     });
 }
 
@@ -4723,6 +4713,14 @@ async function salvarPaciente() {
             await bancoDados.from('planos_atendimento').update(payloadPlano).eq('paciente_id', pacienteId);
         } else {
             await bancoDados.from('planos_atendimento').insert([payloadPlano]);
+        }
+
+        // Ao inativar, exclui apenas agendamentos futuros. Não altera débitos nem sessões passadas.
+        if (statusPacienteEhInativo(payloadPaciente) && pacienteId) {
+            const hojeISO = formatarDataISO(normalizarData(new Date()));
+            const { error: erroLimpeza } = await bancoDados.from('agendamentos')
+                .delete().eq('paciente_id', pacienteId).gt('data', hojeISO);
+            if (erroLimpeza) throw erroLimpeza;
         }
 
         await registrarLogSistema({
