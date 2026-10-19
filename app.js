@@ -2422,12 +2422,6 @@ async function renderizarSidebarCalendarioPaciente(pacienteId, manterPeriodoAtua
         botaoAgendamentoExtra.disabled = pacienteEstaInativo;
         botaoAgendamentoExtra.title = pacienteEstaInativo ? 'Pacientes inativos não recebem novos agendamentos.' : '';
     }
-    // Pacientes inativos não exibem agenda no prontuário, mesmo em datas passadas.
-    // Atendimentos históricos e registros financeiros permanecem no banco e nos relatórios.
-    if (statusPacienteEhInativo(document.getElementById('statusVinculo')?.value)) {
-        listaScroll.innerHTML = '<div style="font-size:12px; color:#718096; padding:10px;">Paciente inativo — agenda sem sessões.</div>';
-        return;
-    }
     if (!manterPeriodoAtual) configurarPeriodoPadraoSidebar();
     const periodo = obterPeriodoConsultaPaciente();
     if (!periodo) return;
