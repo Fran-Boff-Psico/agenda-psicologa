@@ -328,6 +328,14 @@ function criarOcorrenciaDeContaRecorrente(regra, dataISO) {
 // Quando há uma agenda disponível, a recorrência financeira acompanha as sessões
 // reais do paciente (inclusive uma sessão reagendada), e não apenas o calendário.
 // Assim, "esta data e todas as sessões seguintes" aparece em cada atendimento futuro.
+// A partir de 01/10/2026 não há mais sublocações na agenda nem no financeiro.
+function sublocacaoDescontinuada(conta, dataOcorrencia = conta?.data) {
+    if (String(dataOcorrencia || '') < '2026-10-01') return false;
+    const categoria = String(conta?.categoria || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+    const descricao = String(conta?.descricao || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+    return categoria === 'sublocacao' || descricao === 'sublocacao';
+}
+
 function contasNoPeriodo(tipo, inicio, fim, baseFinanceira = null) {
     const inicioISO = formatarDataISO(inicio);
     const fimISO = formatarDataISO(fim);
@@ -399,7 +407,7 @@ function contasNoPeriodo(tipo, inicio, fim, baseFinanceira = null) {
             contasRecorrentes.push(criarOcorrenciaDeContaRecorrente(regra, dataISO));
         }
     });
-    return contasPontuais.concat(contasRecorrentes).sort((a, b) => a.data.localeCompare(b.data));
+    return contasPontuais.concat(contasRecorrentes).filter(conta => !sublocacaoDescontinuada(conta)).sort((a, b) => a.data.localeCompare(b.data));
 }
 
 function normalizarNomePacienteFinanceiro(nome) {
@@ -3637,6 +3645,10 @@ async function salvarContaManual(tipo) {
             : (categoriaSelecionada === 'Sublocacao' ? 'Sublocação' : categoriaSelecionada))
         : document.getElementById('contaReceberDescricao')?.value;
     if (!data || !valor || valor <= 0 || !descricao?.trim()) { alert('Preencha data, descrição e valor da conta.'); return; }
+    if (tipo === 'pagar' && sublocacaoDescontinuada({ categoria, descricao }, data)) {
+        alert('Sublocações não são permitidas a partir de 01/10/2026.');
+        return;
+    }
     const contas = obterContasManuais();
     const pago = Boolean(document.getElementById(tipo === 'pagar' ? 'contaPagarPago' : 'contaReceberPago')?.checked);
     const contaNova = { id: `${Date.now()}_${Math.random().toString(16).slice(2)}`, tipo, data, valor, categoria, descricao: descricao.trim(), pago };
