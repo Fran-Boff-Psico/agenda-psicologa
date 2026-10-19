@@ -52,14 +52,7 @@
     const area=$('docVisualizacao');area.innerHTML=montar(v);area.style.display='block';mensagem('Preparando o PDF...');
     const elemento=area.firstElementChild;
     try{
-      await Promise.all([...elemento.querySelectorAll('img')].map(img=>img.complete?Promise.resolve():new Promise(resolve=>{img.onload=resolve;img.onerror=resolve;})));
-      if([...elemento.querySelectorAll('img')].some(img=>!img.naturalWidth))throw new Error('Logo ou assinatura indisponível: confira os arquivos do modelo.');
-      const pdf=await window.html2pdf().set({margin:0,filename:'Documento.pdf',image:{type:'jpeg',quality:.98},html2canvas:{scale:2,useCORS:true,scrollY:0,windowWidth:elemento.scrollWidth},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},pagebreak:{mode:['css']}}).from(elemento).toPdf().get('pdf');
-      // Evita página vazia gerada por arredondamentos do layout A4.
-      if (pdf.internal.getNumberOfPages() > 1 && elemento.scrollHeight <= elemento.clientHeight + 2) {
-        while (pdf.internal.getNumberOfPages() > 1) pdf.deletePage(pdf.internal.getNumberOfPages());
-      }
-      const blob=pdf.output('blob');
+      const blob=await window.criarPdfClinicoPreciso(tipoAtual,v);
       const nomeArquivo=(tipoAtual==='atestado'?'Atestado-':'Encaminhamento-')+v.nome.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9 -]/g,'').trim().replace(/\s+/g,'-')+'-'+v.data+'.pdf';
       const arquivo=new File([blob],nomeArquivo,{type:'application/pdf'});
       if(compartilhar&&navigator.share&&(!navigator.canShare||navigator.canShare({files:[arquivo]}))){
