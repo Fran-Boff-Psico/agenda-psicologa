@@ -4089,8 +4089,9 @@ function carregarContaPagarOcorrencia(pacienteId, dataISO) {
     const pago = document.getElementById('contaPagarOcorrenciaPago');
     const escopo = document.getElementById('escopoContaPagarOcorrencia');
     if (categoria) categoria.value = conta?.categoria || '';
+    if (categoria) Array.from(categoria.options).forEach(opcao => { if (opcao.value === 'Sublocacao') opcao.disabled = dataISO >= '2026-10-01'; });
     if (descricao) descricao.value = conta?.categoria === 'Outro' ? (conta.descricao || '') : '';
-    if (categoria && sublocacaoDescontinuada(conta, dataISO)) categoria.value = '';
+    if (categoria && dataISO >= '2026-10-01' && (!conta || sublocacaoDescontinuada(conta, dataISO))) categoria.value = '';
     if (valor) valor.value = sublocacaoDescontinuada(conta, dataISO) ? '' : (conta?.valor || '');
     if (pago) pago.checked = Boolean(conta?.pago);
     if (escopo) escopo.value = conta?.recorrente && !sublocacaoDescontinuada(conta, dataISO) ? 'demais' : 'somente';
@@ -4115,6 +4116,10 @@ async function salvarContaPagarOcorrencia(pacienteId, dataOriginal, novaData, es
         alert('Sublocações não são permitidas a partir de 01/10/2026. Selecione Nenhuma.');
         return;
     }
+    const categoriaPermitida = document.getElementById('contaPagarOcorrenciaCategoria');
+    if (categoriaPermitida && novaData >= '2026-10-01') categoriaPermitida.querySelectorAll('option').forEach(op => {
+        if (op.value === 'Sublocacao') op.disabled = true;
+    });
     const origemOriginal = chaveOrigemContaPagar(pacienteId, dataOriginal);
     const origemNova = chaveOrigemContaPagar(pacienteId, novaData);
     let contas = obterContasManuais();
