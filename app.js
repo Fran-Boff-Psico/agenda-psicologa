@@ -2528,7 +2528,7 @@ async function renderizarSidebarCalendarioPaciente(pacienteId, manterPeriodoAtua
                 const exibStatus = excecao ? excecao.status : 'Agendado';
                 const classeStatusSide = MAPA_CLASSES_STATUS[exibStatus] || 'status-agendado';
                 const pago = obterPagamentoAtendimento(pacienteId, dataISO);
-                const contasDaData = contasPagarPeriodo.filter(conta => conta.data === dataISO);
+                const contasDaData = contasPagarPeriodo.filter(conta => conta.data === dataISO && !sublocacaoDescontinuada(conta, dataISO));
                 const textoContasPagar = contasDaData.map(conta => {
                     const categoria = conta.categoria === 'Outro' || conta.categoria === 'Manual'
                         ? 'Reg. Manual'
@@ -4067,7 +4067,7 @@ function obterContaPagarDaSessao(pacienteId, dataISO) {
         && !item.recorrente
         && item.origem === chaveOrigemContaPagar(pacienteId, dataISO)
     );
-    if (contaPontual) return contaPontual;
+    if (contaPontual && !sublocacaoDescontinuada(contaPontual, dataISO)) return contaPontual;
 
     // O editor só é aberto a partir de uma sessão existente. Portanto, se houver
     // uma regra vigente para o paciente, ela deve ser mostrada também nessa sessão.
@@ -4078,7 +4078,7 @@ function obterContaPagarDaSessao(pacienteId, dataISO) {
             && String(item.pacienteId) === String(pacienteId)
             && item.data <= dataISO)
         .sort((a, b) => b.data.localeCompare(a.data))[0];
-    return regra ? criarOcorrenciaDeContaRecorrente(regra, dataISO) : null;
+    return regra && !sublocacaoDescontinuada(regra, dataISO) ? criarOcorrenciaDeContaRecorrente(regra, dataISO) : null;
 }
 
 function carregarContaPagarOcorrencia(pacienteId, dataISO) {
@@ -4090,9 +4090,10 @@ function carregarContaPagarOcorrencia(pacienteId, dataISO) {
     const escopo = document.getElementById('escopoContaPagarOcorrencia');
     if (categoria) categoria.value = conta?.categoria || '';
     if (descricao) descricao.value = conta?.categoria === 'Outro' ? (conta.descricao || '') : '';
-    if (valor) valor.value = conta?.valor || '';
+    if (categoria && sublocacaoDescontinuada(conta, dataISO)) categoria.value = '';
+    if (valor) valor.value = sublocacaoDescontinuada(conta, dataISO) ? '' : (conta?.valor || '');
     if (pago) pago.checked = Boolean(conta?.pago);
-    if (escopo) escopo.value = conta?.recorrente ? 'demais' : 'somente';
+    if (escopo) escopo.value = conta?.recorrente && !sublocacaoDescontinuada(conta, dataISO) ? 'demais' : 'somente';
     alternarDescricaoContaPagarOcorrencia();
 }
 
@@ -4110,6 +4111,10 @@ async function salvarContaPagarOcorrencia(pacienteId, dataOriginal, novaData, es
     const valor = Number(document.getElementById('contaPagarOcorrenciaValor')?.value || 0);
     const descricaoOutro = document.getElementById('contaPagarOcorrenciaDescricao')?.value || '';
     const pago = Boolean(document.getElementById('contaPagarOcorrenciaPago')?.checked);
+    if (sublocacaoDescontinuada({ categoria, descricao: categoria === 'Outro' ? descricaoOutro : categoria }, novaData)) {
+        alert('Sublocações não são permitidas a partir de 01/10/2026. Selecione Nenhuma.');
+        return;
+    }
     const origemOriginal = chaveOrigemContaPagar(pacienteId, dataOriginal);
     const origemNova = chaveOrigemContaPagar(pacienteId, novaData);
     let contas = obterContasManuais();
