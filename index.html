@@ -55,6 +55,7 @@
             <button type="button" onclick="abrirTermoCompromisso()">Termo de compromisso</button>
             <button type="button" onclick="abrirGeradorDocumentoClinico('atestado')">Atestado Psicológico</button>
             <button type="button" onclick="abrirGeradorDocumentoClinico('encaminhamento')">Encaminhamento Psiquiátrico</button>
+            <button type="button" onclick="abrirGeradorRecibo()">Recibos</button>
         </div>
         <button onclick="mostrarTela('configuracoes')">Configurações</button>
     </div>
@@ -476,6 +477,26 @@
       </div>    
       <div id="docVisualizacao" style="display:none;margin-top:20px;overflow:auto;background:#e5e7eb;padding:15px"></div>    
     </section>
+<section id="geradorRecibo" class="documentos-container" style="display:none;max-width:920px">
+ <div class="documentos-cabecalho"><h3>Recibo</h3></div>
+ <div class="form-container" style="display:block">
+  <div class="form-row">
+   <div class="form-group" style="flex:2;min-width:240px"><label for="reciboNome">Nome de quem efetuou o pagamento</label><input id="reciboNome" list="docPacientesSugestoes" placeholder="Nome completo" autocomplete="off"></div>
+   <div class="form-group" style="min-width:180px"><label for="reciboValor">Valor recebido (R$)</label><input id="reciboValor" type="number" min="0.01" step="0.01" placeholder="130,00"></div>
+  </div>
+  <div class="form-row">
+   <div class="form-group" style="flex:2"><label for="reciboReferencia">Referência (opcional)</label><textarea id="reciboReferencia" rows="2" placeholder="Ex.: atendimento psicológico realizado em 21/10/2026"></textarea></div>
+   <div class="form-group"><label for="reciboData">Data de emissão</label><input id="reciboData" type="date"></div>
+  </div>
+  <div class="acoes-formulario-conta">
+    <button type="button" class="btn-principal" onclick="gerarRecibo(false)">Salvar PDF</button>
+    <button type="button" class="btn-secundario" onclick="gerarRecibo(true)">Compartilhar PDF</button>
+    <button type="button" class="btn-secundario" onclick="visualizarRecibo()">Visualizar</button>
+  </div>
+  <p id="reciboAviso" role="status" style="font-size:12px;margin-top:10px"></p>
+ </div>
+ <div id="reciboPrevia" style="display:none;margin-top:20px;overflow:auto;background:#e5e7eb;padding:15px"></div>
+</section>
         </div>
 
         <div id="consultaLogs" class="tela">
@@ -711,6 +732,7 @@
     <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" defer></script>
     <script src="documentos-pdf-preciso.js?v=20261025-dias" defer></script>
     <script src="documentos-geradores.js?v=20261025-dias" defer></script>
+    <script src="recibos-gerador.js?v=20261026" defer></script>
 </body>
 </html>
 
