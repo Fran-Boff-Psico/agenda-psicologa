@@ -30,6 +30,7 @@
       $('docPacientesSugestoes').innerHTML=(data||[]).map(p=>'<option value="'+texto(p.nome)+'"></option>').join('');
     }catch(e){console.warn('Sugestões de pacientes indisponíveis.',e);}
   };
+function periodoAtestado(n){const w=["zero","um","dois","três","quatro","cinco","seis","sete","oito","nove","dez"];return n+' ('+(w[n]||String(n))+') '+(n===1?'dia':'dias');}
   function verificar(){
     const nome=$('docPacienteNome').value.trim(), data=$('docData').value;
     if(!nome||!data){mensagem('Preencha o nome do paciente e a data do documento.');return null;}
