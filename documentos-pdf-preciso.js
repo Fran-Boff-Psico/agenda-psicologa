@@ -62,7 +62,11 @@
     novaPagina();
     if(tipo==='atestado'){
       titulo('Atestado Psicológico');
-      paragrafo('Eu, Franciele Boff de Lima, psicóloga, inscrita no CRP 07/42161, atesto, para os devidos fins, que '+v.nome+' esteve em atendimento psicológico nesta data, '+dataExtenso(v.atendimento)+', sendo necessária sua ausência de suas atividades no período das '+v.inicio.replace(':','h')+' até '+v.fim.replace(':','h')+'.',17);
+      if(v.modo==='dias'){
+        paragrafo('Eu, Franciele Boff de Lima, psicóloga, inscrita no CRP 07/42161, atesto, para os devidos fins, que '+v.nome+' necessita afastar-se de suas atividades pelo período de '+v.numeroDias+' dia(s), a partir de '+dataExtenso(v.inicioDias)+'.',17);
+      }else{
+        paragrafo('Eu, Franciele Boff de Lima, psicóloga, inscrita no CRP 07/42161, atesto, para os devidos fins, que '+v.nome+' esteve em atendimento psicológico nesta data, '+dataExtenso(v.atendimento)+', sendo necessária sua ausência de suas atividades no período das '+v.inicio.replace(':','h')+' até '+v.fim.replace(':','h')+'.',17);
+      }
       paragrafo('Caxias do Sul, '+dataExtenso(v.data)+'.');
       pdf.addImage(carimbo,'PNG',80,195,50,35);
     }else{
