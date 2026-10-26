@@ -452,14 +452,19 @@
           <div class="form-group" style="min-width:240px;flex:2"><label for="docPacienteNome">Nome completo do paciente</label><input id="docPacienteNome" list="docPacientesSugestoes" autocomplete="off" placeholder="Digite ou escolha um paciente" required><datalist id="docPacientesSugestoes"></datalist></div>    
           <div class="form-group" style="min-width:180px"><label for="docData">Data do documento</label><input type="date" id="docData" required></div>    
         </div>    
-        <div id="docCamposAtestado">    
-          <div class="form-row">    
-            <div class="form-group"><label for="docDataAtendimento">Data do atendimento</label><input type="date" id="docDataAtendimento"></div>    
-            <div class="form-group"><label for="docHoraInicio">Ausência a partir de</label><input id="docHoraInicio" type="time"></div>    
-            <div class="form-group"><label for="docHoraFim">Ausência até</label><input id="docHoraFim" type="time"></div>    
-          </div>    
-        </div>    
-        <div id="docCamposEncaminhamento" style="display:none">    
+        <div id="docCamposAtestado">
+ <div class="form-group"><label for="docTipoAfastamento">Tipo de atestado</label><select id="docTipoAfastamento" onchange="alternarTipoAfastamento()"><option value="horas">Intervalo de horas</option><option value="dias">Período de dias</option></select></div>
+ <div id="docCampoHoras" class="form-row">
+  <div class="form-group"><label for="docDataAtendimento">Data do atendimento</label><input type="date" id="docDataAtendimento"></div>
+  <div class="form-group"><label for="docHoraInicio">Ausência a partir de</label><input id="docHoraInicio" type="time"></div>
+  <div class="form-group"><label for="docHoraFim">Ausência até</label><input id="docHoraFim" type="time"></div>
+ </div>
+ <div id="docCampoDias" class="form-row" style="display:none">
+  <div class="form-group"><label for="docNumeroDias">Quantidade de dias</label><input id="docNumeroDias" type="number" min="1" step="1" placeholder="Ex.: 3"></div>
+  <div class="form-group"><label for="docInicioDias">A partir de</label><input id="docInicioDias" type="date"></div>
+ </div>
+</div>
+<div id="docCamposEncaminhamento" style="display:none">    
           <div class="form-group"><label for="docRelatoClinico">Relato clínico e justificativa para avaliação psiquiátrica</label><textarea id="docRelatoClinico" rows="10" style="width:100%;max-width:100%" placeholder="Descreva as observações clínicas e os relatos pertinentes. Use parágrafos para organizar o texto."></textarea></div>    
         </div>    
         <div class="acoes-formulario-conta" style="margin-top:18px">    
@@ -704,8 +709,8 @@
     <script src="app.js?v=20261025-sem-sublocacoes-pacientes"></script>
     <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.2/dist/html2pdf.bundle.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" defer></script>
-    <script src="documentos-pdf-preciso.js?v=20261019-a4b" defer></script>
-    <script src="documentos-geradores.js?v=20261019-a4" defer></script>
+    <script src="documentos-pdf-preciso.js?v=20261025-dias" defer></script>
+    <script src="documentos-geradores.js?v=20261025-dias" defer></script>
 </body>
 </html>
 
