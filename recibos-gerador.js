@@ -73,6 +73,10 @@
   pdf.addImage(assinatura,'PNG',77,assinaturaY,56,39);
   return pdf.output('blob');
  }
+ const abrirTermoAnterior=window.abrirTermoCompromisso;
+ window.abrirTermoCompromisso=function(){ $('geradorRecibo').style.display='none'; return abrirTermoAnterior(); };
+ const abrirDocumentoAnterior=window.abrirGeradorDocumentoClinico;
+ window.abrirGeradorDocumentoClinico=function(tipo){ $('geradorRecibo').style.display='none'; return abrirDocumentoAnterior(tipo); };
  window.abrirGeradorRecibo=async()=>{
   mostrarTela('documentos');
   $('docTermoContainer').style.display='none';$('geradorDocumentosClinicos').style.display='none';$('geradorRecibo').style.display='block';
