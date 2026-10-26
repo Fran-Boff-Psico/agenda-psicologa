@@ -15,6 +15,7 @@
     const d=new Date(date+'T12:00:00');
     return new Intl.DateTimeFormat('pt-BR',{day:'numeric',month:'long',year:'numeric'}).format(d);
   };
+function periodoAtestado(n){const w=["zero","um","dois","três","quatro","cinco","seis","sete","oito","nove","dez"];return n+' ('+(w[n]||String(n))+') '+(n===1?'dia':'dias');}
   window.criarPdfClinicoPreciso=async (tipo,v) => {
     const JsPDF=window.jspdf?.jsPDF;
     if(!JsPDF)throw new Error('Biblioteca de PDF não carregada.');
