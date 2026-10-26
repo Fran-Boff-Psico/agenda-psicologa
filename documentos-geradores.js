@@ -7,6 +7,11 @@
   function mensagem(s){$('docAviso').textContent=s;}
   window.abrirTermoCompromissoOriginal=window.abrirTermoCompromisso;
   window.abrirTermoCompromisso=function(){window.abrirTermoCompromissoOriginal();$('docTermoContainer').style.display='block';$('geradorDocumentosClinicos').style.display='none';};
+  window.alternarTipoAfastamento=function(){
+    const dias=$('docTipoAfastamento')?.value==='dias';
+    $('docCampoHoras').style.display=dias?'none':'flex';
+    $('docCampoDias').style.display=dias?'flex':'none';
+  };
   window.abrirGeradorDocumentoClinico=async function(tipo){
     tipoAtual=tipo;
     mostrarTela('documentos');
@@ -16,7 +21,8 @@
     $('docCamposAtestado').style.display=tipo==='atestado'?'block':'none';
     $('docCamposEncaminhamento').style.display=tipo==='encaminhamento'?'block':'none';
     const hoje=new Date();const iso=[hoje.getFullYear(),String(hoje.getMonth()+1).padStart(2,'0'),String(hoje.getDate()).padStart(2,'0')].join('-');
-    $('docData').value=iso;$('docDataAtendimento').value=iso;
+    $('docData').value=iso;$('docDataAtendimento').value=iso;$('docInicioDias').value=iso;
+    $('docTipoAfastamento').value='horas';window.alternarTipoAfastamento();
     $('docVisualizacao').style.display='none'; mensagem('');
     try {
       const {data,error}=await bancoDados.from('pacientes').select('nome').order('nome');
@@ -27,16 +33,19 @@
   function verificar(){
     const nome=$('docPacienteNome').value.trim(), data=$('docData').value;
     if(!nome||!data){mensagem('Preencha o nome do paciente e a data do documento.');return null;}
-    if(tipoAtual==='atestado'&&(!$('docDataAtendimento').value||!$('docHoraInicio').value||!$('docHoraFim').value)){mensagem('Preencha a data do atendimento e o período de ausência.');return null;}
+    if(tipoAtual==='atestado'&&$('docTipoAfastamento').value==='horas'&&(!$('docDataAtendimento').value||!$('docHoraInicio').value||!$('docHoraFim').value)){mensagem('Preencha a data do atendimento e o período de ausência.');return null;}
+    if(tipoAtual==='atestado'&&$('docTipoAfastamento').value==='dias'&&(!Number.isInteger(Number($('docNumeroDias').value))||Number($('docNumeroDias').value)<1||!$('docInicioDias').value)){mensagem('Informe a quantidade de dias e a data inicial.');return null;}
     if(tipoAtual==='encaminhamento'&&!$('docRelatoClinico').value.trim()){mensagem('Preencha o relato clínico antes de gerar o encaminhamento.');return null;}
-    if(tipoAtual==='atestado'&&$('docHoraFim').value<=$('docHoraInicio').value){mensagem('O horário final deve ser posterior ao inicial.');return null;}
-    return {nome,data,atendimento:$('docDataAtendimento').value,inicio:$('docHoraInicio').value,fim:$('docHoraFim').value,relato:$('docRelatoClinico').value.trim()};
+    if(tipoAtual==='atestado'&&$('docTipoAfastamento').value==='horas'&&$('docHoraFim').value<=$('docHoraInicio').value){mensagem('O horário final deve ser posterior ao inicial.');return null;}
+    return {nome,data,modo:$('docTipoAfastamento').value,numeroDias:Number($('docNumeroDias').value),inicioDias:$('docInicioDias').value,atendimento:$('docDataAtendimento').value,inicio:$('docHoraInicio').value,fim:$('docHoraFim').value,relato:$('docRelatoClinico').value.trim()};
   }
   function montar(v){
     const titulo=tipoAtual==='atestado'?'Atestado Psicológico':'Encaminhamento Psicológico para Avaliação Psiquiátrica';
     const nome=texto(v.nome),extenso=dataPorExtenso(v.data);
     const corpo=tipoAtual==='atestado'
-      ?'<p>Eu, <b>Franciele Boff de Lima</b>, psicóloga, inscrita no <b>CRP 07/42161</b>, atesto, para os devidos fins, que <b>'+nome+'</b> esteve em atendimento psicológico nesta data, <b>'+dataPorExtenso(v.atendimento)+'</b>, sendo necessária sua ausência de suas atividades no <b>período das '+hora(v.inicio)+' até '+hora(v.fim)+'</b>.</p>'
+      ? (v.modo==='dias'
+          ? '<p>Eu, <b>Franciele Boff de Lima</b>, psicóloga, inscrita no <b>CRP 07/42161</b>, atesto, para os devidos fins, que <b>'+nome+'</b> necessita afastar-se de suas atividades pelo período de <b>'+v.numeroDias+' dia(s)</b>, a partir de <b>'+dataPorExtenso(v.inicioDias)+'</b>.</p>'
+          : '<p>Eu, <b>Franciele Boff de Lima</b>, psicóloga, inscrita no <b>CRP 07/42161</b>, atesto, para os devidos fins, que <b>'+nome+'</b> esteve em atendimento psicológico nesta data, <b>'+dataPorExtenso(v.atendimento)+'</b>, sendo necessária sua ausência de suas atividades no <b>período das '+hora(v.inicio)+' até '+hora(v.fim)+'</b>.</p>')
       :'<p>Eu, <b>Franciele Boff de Lima</b>, psicóloga, inscrita no <b>CRP 07/42161</b>, elaboro o presente encaminhamento psicológico com a finalidade de encaminhar a paciente <b>'+nome+'</b> para avaliação psiquiátrica, considerando os sinais e sintomas observados no decorrer do acompanhamento psicológico.</p>'
        +v.relato.split(/\n\s*\n/).map(p=>'<p>'+texto(p).replace(/\n/g,'<br>')+'</p>').join('')
        +'<p>Ressalta-se que o presente documento baseia-se nas observações clínicas realizadas durante o processo psicoterapêutico e nos relatos apresentados pela paciente, não possuindo caráter pericial nem tendo por finalidade estabelecer diagnóstico psiquiátrico.</p><p style="margin-top:28px">Coloco-me à disposição para eventuais esclarecimentos técnicos que se fizerem necessários.</p>';
